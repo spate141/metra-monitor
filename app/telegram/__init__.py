@@ -1,1 +1,1 @@
-"""Telegram bot handlers + push client (design §4.6). Implemented in Phase 2."""
+"""Telegram bot handlers + push client (design §4.6). See bot.py."""

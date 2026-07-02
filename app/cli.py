@@ -1,26 +1,31 @@
-"""`metra` CLI entrypoint (design §11 Phase 1 exit criteria).
+"""`metra` CLI entrypoint (design §11, Phase 1 + Phase 2 exit criteria).
 
-    metra ingest    -- force a static schedule rebuild
-    metra resolve   -- print today's resolved morning/evening trips
-    metra delays    -- resolve + one realtime poll, print live delay per train
+    metra ingest              -- force a static schedule rebuild
+    metra resolve             -- print today's resolved morning/evening trips
+    metra delays              -- resolve + one realtime poll, print live delay per train
+    metra briefing <slot>     -- print today's morning/evening briefing text (--send to push it)
+    metra run                 -- start the long-running Telegram bot + APScheduler process
 
-`delays` is the Phase 1 exit-criteria command: it must print today's resolved
-trips and their live delays (or "assumed on schedule" / "no live data" when the
-realtime token isn't configured -- see design edge case #4).
+`delays` is the Phase 1 exit-criteria command. `briefing`/`run` are Phase 2: `briefing`
+lets the message content be verified without waiting for a scheduled fire time or
+running the bot; `run` is the long-running process that serves /next /morning
+/evening /train and fires the cron briefings.
 """
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import sys
 from datetime import datetime
 
 from app.config import settings
+from app.core.delay import delay_glyph, stop_delay
 from app.core.models import NoService, ResolvedTrip
 from app.core.trip_resolver import resolve_today
+from app.db import connect
 from app.ingest.static_ingestor import ingest
 from app.realtime.poller import poll_once
-from app.realtime.state_store import TripUpdateEntry
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("metra.cli")
@@ -28,26 +33,6 @@ logger = logging.getLogger("metra.cli")
 
 def _today() -> datetime:
     return datetime.now(settings.tzinfo)
-
-
-def _delay_glyph(delay_sec: int | None, is_annulled: bool) -> str:
-    if is_annulled:
-        return "⛔"
-    if delay_sec is None:
-        return "⚪"
-    minutes = delay_sec / 60
-    if minutes <= 2:
-        return "✅"
-    if minutes <= 9:
-        return "🟡"
-    return "🔴"
-
-
-def _stop_delay(entry: TripUpdateEntry, stop_id: str) -> int | None:
-    for stu in entry.stop_time_updates:
-        if stu["stop_id"] == stop_id:
-            return stu["departure_delay"] if stu["departure_delay"] is not None else stu["arrival_delay"]
-    return entry.delay_sec
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -108,8 +93,8 @@ def cmd_delays(args: argparse.Namespace) -> int:
             )
             continue
 
-        delay_sec = _stop_delay(entry, stop_id)
-        glyph = _delay_glyph(delay_sec, entry.is_annulled)
+        delay_sec = stop_delay(entry, stop_id)
+        glyph = delay_glyph(delay_sec, entry.is_annulled)
         delay_min = f"{delay_sec // 60:+d} min" if delay_sec is not None else "unknown"
         print(
             f"{slot.capitalize()}: {glyph} train #{trip.train_no} @ {stop_id} -- "
@@ -118,6 +103,40 @@ def cmd_delays(args: argparse.Namespace) -> int:
 
     if not settings.has_realtime:
         print("\n(note: METRA_API_TOKEN not set -- realtime feeds were not polled)")
+    return 0
+
+
+def cmd_briefing(args: argparse.Namespace) -> int:
+    from app.briefings.builder import build_evening_briefing, build_morning_briefing
+
+    ingest(settings)
+    service_date = _today().date()
+    conn = connect(settings.db_path)
+    try:
+        snapshot = poll_once(settings)
+        builder = build_morning_briefing if args.slot == "morning" else build_evening_briefing
+        text = builder(conn, snapshot, settings, service_date)
+    finally:
+        conn.close()
+    print(text)
+
+    if args.send:
+        from app.telegram.bot import build_application, push_message
+
+        async def _send() -> None:
+            application = build_application(settings)
+            async with application:
+                await push_message(application, settings, text)
+
+        asyncio.run(_send())
+        print("\n(sent via Telegram)")
+    return 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    from app.main import main as run_main
+
+    run_main()
     return 0
 
 
@@ -134,6 +153,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_delays = sub.add_parser("delays", help="resolve + one realtime poll, print live delays")
     p_delays.set_defaults(func=cmd_delays)
+
+    p_briefing = sub.add_parser("briefing", help="print today's briefing text (--send to push via Telegram)")
+    p_briefing.add_argument("slot", choices=["morning", "evening"])
+    p_briefing.add_argument("--send", action="store_true", help="also send the briefing via Telegram")
+    p_briefing.set_defaults(func=cmd_briefing)
+
+    p_run = sub.add_parser("run", help="start the long-running Telegram bot + briefing scheduler")
+    p_run.set_defaults(func=cmd_run)
 
     return parser
 

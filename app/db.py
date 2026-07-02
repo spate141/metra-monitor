@@ -129,3 +129,12 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
         (key, value),
     )
     conn.commit()
+
+
+def briefing_already_sent(conn: sqlite3.Connection, slot: str, service_date) -> bool:
+    """Cold-start grace bookkeeping (design §8.7): has today's `slot` briefing gone out?"""
+    return get_meta(conn, f"briefing_sent:{slot}:{service_date.isoformat()}") == "1"
+
+
+def mark_briefing_sent(conn: sqlite3.Connection, slot: str, service_date) -> None:
+    set_meta(conn, f"briefing_sent:{slot}:{service_date.isoformat()}", "1")

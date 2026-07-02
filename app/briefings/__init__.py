@@ -1,1 +1,1 @@
-"""Briefing message builders (design §4.4). Implemented in Phase 2."""
+"""Briefing message builders (design §4.4). See builder.py."""

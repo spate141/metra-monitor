@@ -21,6 +21,7 @@ from pathlib import Path
 
 from app.core.models import NoService, ResolvedTrip, StopTime
 from app.db import connect
+from app.ingest.gtfs_time import parse_gtfs_time_to_seconds
 
 MORNING_DIRECTION_ID = 1   # inbound, headed to CUS
 EVENING_DIRECTION_ID = 0   # outbound, headed away from CUS
@@ -108,6 +109,33 @@ def resolve_evening(
 
     stops = _stops_for_trip(conn, row["trip_id"])
     return ResolvedTrip(service_date, "evening", row["trip_id"], row["trip_short_name"], stops)
+
+
+def list_departures(
+    conn: sqlite3.Connection, stop_id: str, direction_id: int, active: set[str]
+) -> list[dict]:
+    """All scheduled departures at stop_id/direction_id for the given active service_ids,
+    sorted by departure time. Used for briefing "backup trains" (design §4.4).
+    """
+    if not active:
+        return []
+    qmarks = ",".join("?" * len(active))
+    rows = conn.execute(
+        f"""
+        SELECT t.trip_id, t.trip_short_name, st.departure_time
+        FROM trips t
+        JOIN stop_times st ON st.trip_id = t.trip_id
+        WHERE t.direction_id = ? AND t.service_id IN ({qmarks})
+          AND st.stop_id = ? AND st.departure_time IS NOT NULL
+        """,
+        (direction_id, *active, stop_id),
+    ).fetchall()
+    out = [
+        {"trip_id": r["trip_id"], "train_no": r["trip_short_name"], "departure_time": r["departure_time"]}
+        for r in rows
+    ]
+    out.sort(key=lambda r: parse_gtfs_time_to_seconds(r["departure_time"]))
+    return out
 
 
 def _persist(conn: sqlite3.Connection, result: ResolvedTrip | NoService) -> None:
