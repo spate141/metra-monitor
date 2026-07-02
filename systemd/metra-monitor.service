@@ -1,12 +1,12 @@
 [Unit]
-Description=metra-agent (FastAPI API + Telegram bot + alert engine)
+Description=metra-monitor (FastAPI API + Telegram bot + alert engine)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=YOUR_VM_USER
-WorkingDirectory=/home/YOUR_VM_USER/apps/metra-agent
+WorkingDirectory=/home/YOUR_VM_USER/apps/metra-monitor
 ExecStart=/home/YOUR_VM_USER/.local/bin/uv run uvicorn app.main:app --host 127.0.0.1 --port 8010
 Restart=always
 RestartSec=5

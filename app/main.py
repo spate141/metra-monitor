@@ -129,7 +129,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown()
 
 
-app = FastAPI(title="metra-agent", lifespan=lifespan)
+app = FastAPI(title="metra-monitor", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.CORS_ORIGIN, "http://localhost:5173", "http://127.0.0.1:5173"],

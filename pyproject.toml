@@ -1,5 +1,5 @@
 [project]
-name = "metra-agent"
+name = "metra-monitor"
 version = "0.1.0"
 description = "Self-hosted Metra MD-W commute intelligence system"
 readme = "README.md"

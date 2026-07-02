@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Deploy metra-agent on the VM: git pull, uv sync, reinstall the systemd unit
+# Deploy metra-monitor on the VM: git pull, uv sync, reinstall the systemd unit
 # only if it changed, restart the service, health-check. Run from the repo root
-# on the VM (~/apps/metra-agent).
+# on the VM (~/apps/metra-monitor).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -20,13 +20,13 @@ AFTER=$(git rev-parse HEAD)
 
 uv sync
 
-if [ "$BEFORE" != "$AFTER" ] && git diff --name-only "$BEFORE" "$AFTER" | grep -q '^systemd/metra-agent.service$'; then
+if [ "$BEFORE" != "$AFTER" ] && git diff --name-only "$BEFORE" "$AFTER" | grep -q '^systemd/metra-monitor.service$'; then
   echo "systemd unit changed -- reinstalling"
-  sed -i "s/YOUR_VM_USER/$USER/g" systemd/metra-agent.service
-  sudo cp systemd/metra-agent.service /etc/systemd/system/
+  sed -i "s/YOUR_VM_USER/$USER/g" systemd/metra-monitor.service
+  sudo cp systemd/metra-monitor.service /etc/systemd/system/
   sudo systemctl daemon-reload
 fi
 
-sudo systemctl restart metra-agent
+sudo systemctl restart metra-monitor
 sleep 2
-curl -sf localhost:8010/health && echo || { echo "health check failed -- check: sudo journalctl -u metra-agent -n 50"; exit 1; }
+curl -sf localhost:8010/health && echo || { echo "health check failed -- check: sudo journalctl -u metra-monitor -n 50"; exit 1; }

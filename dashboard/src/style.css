@@ -1,5 +1,5 @@
-/* Design tokens ported from snehal.ai / garden-agent's style — same palette,
-   same fonts, so metra.snehal.ai feels like the same site family. */
+/* Dark-default / light-override design tokens: shared palette and fonts across
+   both themes, toggled via the [data-theme] attribute. */
 :root,
 [data-theme="light"] {
   --bg:            #fafaf9;

@@ -141,7 +141,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="metra", description="metra-agent CLI")
+    parser = argparse.ArgumentParser(prog="metra", description="metra-monitor CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_ingest = sub.add_parser("ingest", help="force a static schedule rebuild")

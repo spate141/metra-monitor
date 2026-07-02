@@ -1,5 +1,5 @@
 {
-  "name": "metra-agent-dashboard",
+  "name": "metra-monitor-dashboard",
   "private": true,
   "version": "0.0.0",
   "type": "module",

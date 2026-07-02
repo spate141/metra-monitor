@@ -1,4 +1,4 @@
-// Thin client for metra-agent's public REST API (design §5). All read-only,
+// Thin client for metra-monitor's public REST API (design §5). All read-only,
 // no auth needed -- the frontend never sees the Metra token.
 const API_BASE = import.meta.env.VITE_API_BASE as string;
 
