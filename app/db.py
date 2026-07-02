@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -92,6 +93,12 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS alert_fingerprints (
+    fingerprint TEXT PRIMARY KEY,
+    first_seen TEXT NOT NULL,
+    last_sent TEXT NOT NULL
+);
 """
 
 
@@ -138,3 +145,24 @@ def briefing_already_sent(conn: sqlite3.Connection, slot: str, service_date) -> 
 
 def mark_briefing_sent(conn: sqlite3.Connection, slot: str, service_date) -> None:
     set_meta(conn, f"briefing_sent:{slot}:{service_date.isoformat()}", "1")
+
+
+def fingerprint_recently_sent(conn: sqlite3.Connection, fingerprint: str, cooldown: timedelta) -> bool:
+    """Alert Engine dedup (design §4.5, §7 `alert_fingerprints`)."""
+    row = conn.execute(
+        "SELECT last_sent FROM alert_fingerprints WHERE fingerprint = ?", (fingerprint,)
+    ).fetchone()
+    if row is None:
+        return False
+    last_sent = datetime.fromisoformat(row["last_sent"])
+    return datetime.now(timezone.utc) - last_sent < cooldown
+
+
+def mark_fingerprint_sent(conn: sqlite3.Connection, fingerprint: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO alert_fingerprints (fingerprint, first_seen, last_sent) VALUES (?, ?, ?) "
+        "ON CONFLICT(fingerprint) DO UPDATE SET last_sent = excluded.last_sent",
+        (fingerprint, now, now),
+    )
+    conn.commit()

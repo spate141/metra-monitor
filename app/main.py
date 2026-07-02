@@ -9,9 +9,11 @@ Started via `metra run` (long-running). Wires:
   `meta`), send it late with a "(delayed briefing)" tag instead of waiting for
   tomorrow's cron fire.
 
-The realtime poller here is a single fresh `poll_once()` per briefing/command, not
-a continuous adaptive-cadence loop -- that loop only pays for itself once the Alert
-Engine (Phase 3) needs continuous snapshot diffing.
+Briefings and on-demand commands (`/next`, `/train`, etc.) still use a single fresh
+`poll_once()` each -- no need to share state for those. The Alert Engine (design
+§4.5), by contrast, needs a continuous adaptive-cadence loop (design §4.3) feeding
+a shared `StateStore` so it can diff consecutive snapshots; that loop is started
+here as a background task (see app/realtime/loop.py).
 """
 from __future__ import annotations
 
@@ -26,7 +28,9 @@ from app.briefings.builder import build_evening_briefing, build_morning_briefing
 from app.config import Settings, settings
 from app.db import briefing_already_sent, connect, mark_briefing_sent
 from app.ingest.static_ingestor import ingest
+from app.realtime.loop import run_loop
 from app.realtime.poller import poll_once
+from app.realtime.state_store import StateStore
 from app.telegram.bot import build_application, push_message
 
 logger = logging.getLogger(__name__)
@@ -98,14 +102,19 @@ async def run() -> None:
     )
     scheduler.start()
 
+    state_store = StateStore()
+
     async with application:
         await application.start()
         await application.updater.start_polling()
         logger.info("telegram bot polling started")
         await _cold_start_grace(application, settings)
+
+        alert_task = asyncio.create_task(run_loop(settings, state_store, application))
         try:
             await asyncio.Event().wait()  # run forever, until cancelled/killed
         finally:
+            alert_task.cancel()
             await application.updater.stop()
             await application.stop()
 

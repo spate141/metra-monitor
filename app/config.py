@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     QUIET_HOURS: str = "22:00-05:30"
     CORS_ORIGIN: str = "https://metra.snehal.ai"
 
+    # Alert engine (design §4.5, open item #3): push a "cleared" notice when a
+    # line/stop-level GTFS alert leaves the feed. Off by default -- my-train delay
+    # transitions already report "back to on time" via the band-change alert.
+    ALERT_CLEARED_PUSH: bool = False
+
     # Local storage
     METRA_DB_PATH: str = "metra.db"
 

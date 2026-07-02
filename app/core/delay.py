@@ -21,6 +21,22 @@ def delay_glyph(delay_sec: int | None, is_annulled: bool) -> str:
     return "🔴"
 
 
+def delay_band(delay_sec: int | None, is_annulled: bool) -> str:
+    """Named band matching the glyph thresholds -- used by the Alert Engine (design
+    §4.5) to detect *transitions* ("crosses a band boundary"), not just raw delay.
+    """
+    if is_annulled:
+        return "annulled"
+    if delay_sec is None:
+        return "unknown"
+    minutes = delay_sec / 60
+    if minutes <= 2:
+        return "on_time"
+    if minutes <= 9:
+        return "minor"
+    return "major"
+
+
 def stop_delay(entry: TripUpdateEntry | None, stop_id: str) -> int | None:
     if entry is None:
         return None
