@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="metra-monitor logo" width="120">
+</p>
+
 # metra-monitor
 
 Self-hosted commute intelligence for a single Metra line: a live Telegram bot,

@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { api, type Position, type TripDetail } from "./api";
 
 // Free vector tiles, no API key/billing (design §6: "avoid Mapbox billing").
-const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 
 const DELAY_COLORS: Record<string, string> = {
   on_time: "#4e7f2f",
@@ -93,7 +93,7 @@ export async function initMap(): Promise<MLMap> {
       id: "md-w-line",
       type: "line",
       source: "md-w-line",
-      paint: { "line-color": lineColor, "line-width": 3.5, "line-opacity": 0.85 },
+      paint: { "line-color": lineColor, "line-width": 4, "line-opacity": 1 },
     });
 
     map.addSource("md-w-stops", { type: "geojson", data: geometry.stops });
