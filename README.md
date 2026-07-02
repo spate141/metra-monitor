@@ -25,6 +25,12 @@ Point it at your own line and stations via `.env`.
 - **Dashboard**: a static Vite + TypeScript + MapLibre GL site: live map,
   hero cards for your two tracked trips, alerts ribbon, on-time stats panel.
 
+## Architecture
+
+<p align="center">
+  <img src="docs/architecture.svg" alt="metra-monitor architecture" width="1000">
+</p>
+
 ## Requirements
 
 - Python 3.12+

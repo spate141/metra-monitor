@@ -70,6 +70,7 @@ header {
   backdrop-filter: blur(10px);
   box-shadow: var(--shadow);
   z-index: 20;
+  overflow: hidden;
 }
 .logo {
   font-size: 15px;
@@ -79,8 +80,15 @@ header {
   display: flex;
   align-items: center;
   gap: 9px;
+  min-width: 0;
+  flex-shrink: 1;
 }
-.logo-mark { font-size: 17px; }
+.logo-mark { font-size: 17px; flex-shrink: 0; }
+.logo-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .line-badge {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 11px;
@@ -90,14 +98,23 @@ header {
   background: var(--line);
   border-radius: 5px;
   padding: 3px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: background 0.3s ease;
 }
-.meta { display: flex; align-items: center; gap: 10px; }
+.meta { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .last-update {
   color: var(--ink-muted);
   font-family: 'IBM Plex Mono', Consolas, Menlo, monospace;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media (max-width: 460px) {
+  header { padding: 10px 14px; gap: 8px; }
+  .logo-text { display: none; }
+  .last-update { display: none; }
+  .meta { gap: 8px; }
 }
 .refresh-dot {
   width: 7px; height: 7px; border-radius: 50%;
