@@ -45,22 +45,26 @@ def test_compute_stats_basic(tmp_path):
     assert s["avg_delay_sec"] == 330.0
 
 
-def test_build_stats_message_no_data(tmp_path):
+def _test_settings():
     from app.config import Settings
 
+    return Settings(
+        _env_file=None,
+        HOME_STOP="ROSELLE", WORK_STOP="CUS", MORNING_TRAIN="2222",
+        EVENING_DEPART_CUS="16:05", CORS_ORIGIN="https://example.test",
+    )
+
+
+def test_build_stats_message_no_data(tmp_path):
     conn = _make_db(tmp_path)
-    settings = Settings(_env_file=None)
-    text = build_stats_message(conn, settings)
+    text = build_stats_message(conn, _test_settings())
     assert "No delay history yet" in text
 
 
 def test_build_stats_message_with_data(tmp_path):
-    from app.config import Settings
-
     conn = _make_db(tmp_path)
     now = datetime.now(timezone.utc)
     _insert(conn, "2222", now.isoformat(), 60)
-    settings = Settings(_env_file=None)
-    text = build_stats_message(conn, settings)
+    text = build_stats_message(conn, _test_settings())
     assert "#2222" in text
     assert "on time" in text

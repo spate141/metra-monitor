@@ -19,19 +19,21 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str | None = None
     TELEGRAM_CHAT_ID: str | None = None
 
-    # Line / station / train targeting -- keep configurable per design §1 non-goals
+    # Line / station / train targeting -- keep configurable per design §1 non-goals.
+    # No defaults for the personal ones (home/work stop, train, CORS origin) --
+    # every deployer must set these explicitly in their own .env.
     TZ: str = "America/Chicago"
     ROUTE_ID: str = "MD-W"
-    HOME_STOP: str = "ROSELLE"
-    WORK_STOP: str = "CUS"
-    MORNING_TRAIN: str = "2222"
-    EVENING_DEPART_CUS: str = "16:05"
+    HOME_STOP: str
+    WORK_STOP: str
+    MORNING_TRAIN: str
+    EVENING_DEPART_CUS: str
+    CORS_ORIGIN: str
 
     # Briefing / quiet-hours config (used starting Phase 2, harmless here)
     MORNING_BRIEFING: str = "07:15"
     EVENING_BRIEFING: str = "15:30"
     QUIET_HOURS: str = "22:00-05:30"
-    CORS_ORIGIN: str = "https://metra.snehal.ai"
 
     # Alert engine (design §4.5, open item #3): push a "cleared" notice when a
     # line/stop-level GTFS alert leaves the feed. Off by default -- my-train delay
