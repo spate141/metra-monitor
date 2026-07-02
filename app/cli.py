@@ -1,0 +1,148 @@
+"""`metra` CLI entrypoint (design §11 Phase 1 exit criteria).
+
+    metra ingest    -- force a static schedule rebuild
+    metra resolve   -- print today's resolved morning/evening trips
+    metra delays    -- resolve + one realtime poll, print live delay per train
+
+`delays` is the Phase 1 exit-criteria command: it must print today's resolved
+trips and their live delays (or "assumed on schedule" / "no live data" when the
+realtime token isn't configured -- see design edge case #4).
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from datetime import datetime
+
+from app.config import settings
+from app.core.models import NoService, ResolvedTrip
+from app.core.trip_resolver import resolve_today
+from app.ingest.static_ingestor import ingest
+from app.realtime.poller import poll_once
+from app.realtime.state_store import TripUpdateEntry
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("metra.cli")
+
+
+def _today() -> datetime:
+    return datetime.now(settings.tzinfo)
+
+
+def _delay_glyph(delay_sec: int | None, is_annulled: bool) -> str:
+    if is_annulled:
+        return "⛔"
+    if delay_sec is None:
+        return "⚪"
+    minutes = delay_sec / 60
+    if minutes <= 2:
+        return "✅"
+    if minutes <= 9:
+        return "🟡"
+    return "🔴"
+
+
+def _stop_delay(entry: TripUpdateEntry, stop_id: str) -> int | None:
+    for stu in entry.stop_time_updates:
+        if stu["stop_id"] == stop_id:
+            return stu["departure_delay"] if stu["departure_delay"] is not None else stu["arrival_delay"]
+    return entry.delay_sec
+
+
+def cmd_ingest(args: argparse.Namespace) -> int:
+    rebuilt = ingest(settings, force=args.force)
+    print("rebuilt" if rebuilt else "unchanged (published.txt timestamp matches)")
+    return 0
+
+
+def _print_resolved(slot: str, result: ResolvedTrip | NoService) -> None:
+    if isinstance(result, NoService):
+        print(f"{slot.capitalize()}: 🎉 {result.reason}")
+        return
+    print(f"{slot.capitalize()}: train #{result.train_no} (trip {result.trip_id})")
+    for s in result.stops:
+        print(f"    {s.stop_id:<14} sched {s.departure_time}")
+
+
+def cmd_resolve(args: argparse.Namespace) -> int:
+    ingest(settings)  # cold-start / staleness safety: ensure a DB exists (design §8.7)
+    service_date = _today().date()
+    result = resolve_today(
+        settings.db_path, service_date, settings.MORNING_TRAIN, settings.EVENING_DEPART_CUS,
+        settings.HOME_STOP, settings.WORK_STOP,
+    )
+    print(f"Resolved trips for {service_date.isoformat()}:")
+    for slot in ("morning", "evening"):
+        _print_resolved(slot, result[slot])
+    return 0
+
+
+def cmd_delays(args: argparse.Namespace) -> int:
+    ingest(settings)
+    service_date = _today().date()
+    result = resolve_today(
+        settings.db_path, service_date, settings.MORNING_TRAIN, settings.EVENING_DEPART_CUS,
+        settings.HOME_STOP, settings.WORK_STOP,
+    )
+    snapshot = poll_once(settings)
+
+    watch_stop = {"morning": settings.HOME_STOP, "evening": settings.WORK_STOP}
+    print(f"Live delays for {service_date.isoformat()}:")
+    for slot in ("morning", "evening"):
+        trip = result[slot]
+        if isinstance(trip, NoService):
+            print(f"{slot.capitalize()}: 🎉 {trip.reason}")
+            continue
+
+        entry = snapshot.trip_updates.get(trip.trip_id)
+        stop_id = watch_stop[slot]
+        sched = trip.stop_time_for(stop_id)
+        sched_str = sched.departure_time if sched else "?"
+
+        if entry is None:
+            glyph = "⚪"
+            print(
+                f"{slot.capitalize()}: {glyph} train #{trip.train_no} @ {stop_id} -- "
+                f"scheduled {sched_str} -- no live data, assuming on time"
+            )
+            continue
+
+        delay_sec = _stop_delay(entry, stop_id)
+        glyph = _delay_glyph(delay_sec, entry.is_annulled)
+        delay_min = f"{delay_sec // 60:+d} min" if delay_sec is not None else "unknown"
+        print(
+            f"{slot.capitalize()}: {glyph} train #{trip.train_no} @ {stop_id} -- "
+            f"scheduled {sched_str} -- delay {delay_min}"
+        )
+
+    if not settings.has_realtime:
+        print("\n(note: METRA_API_TOKEN not set -- realtime feeds were not polled)")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="metra", description="metra-agent CLI")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_ingest = sub.add_parser("ingest", help="force a static schedule rebuild")
+    p_ingest.add_argument("--force", action="store_true", help="rebuild even if published.txt is unchanged")
+    p_ingest.set_defaults(func=cmd_ingest)
+
+    p_resolve = sub.add_parser("resolve", help="print today's resolved morning/evening trips")
+    p_resolve.set_defaults(func=cmd_resolve)
+
+    p_delays = sub.add_parser("delays", help="resolve + one realtime poll, print live delays")
+    p_delays.set_defaults(func=cmd_delays)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

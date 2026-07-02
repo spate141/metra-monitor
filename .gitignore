@@ -147,6 +147,12 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# metra-agent local data
+metra.db
+metra.db-shm
+metra.db-wal
+metra.tmp.db
+
 # Environments
 .env
 .envrc
