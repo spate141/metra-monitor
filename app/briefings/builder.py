@@ -12,6 +12,7 @@ from datetime import date
 from app.config import Settings
 from app.core.delay import delay_glyph, stop_delay
 from app.core.models import NoService, ResolvedTrip
+from app.core.stats import compute_stats
 from app.core.trip_resolver import (
     EVENING_DIRECTION_ID,
     MORNING_DIRECTION_ID,
@@ -239,3 +240,28 @@ def build_next_departures(
     lines.append(f"🔜 Next from {settings.WORK_STOP} (outbound):")
     lines.extend(_next(settings.WORK_STOP, EVENING_DIRECTION_ID))
     return "\n".join(lines)
+
+
+def build_stats_message(conn: sqlite3.Connection, settings: Settings) -> str:
+    """30-day on-time performance, per train number (design §12 Phase 6)."""
+    stats = compute_stats(conn, settings.tzinfo)
+    if not stats:
+        return "📊 30-Day Stats\n━━━━━━━━━━━━━━━━━━━━━\nNo delay history yet — check back after a few commutes."
+
+    lines = ["📊 30-Day Stats", "━━━━━━━━━━━━━━━━━━━━━"]
+    for train_no, s in sorted(stats.items(), key=lambda kv: -kv[1]["n_observations"]):
+        glyph = delay_glyph(int(s["avg_delay_sec"]), False)
+        lines.append(f"🚆 #{train_no} {glyph}  {s['on_time_pct']}% on time · avg {s['avg_delay_sec'] / 60:+.1f} min ({s['n_observations']} obs)")
+        by_weekday = s["avg_delay_by_weekday"]
+        if by_weekday:
+            weekday_str = " · ".join(
+                f"{wd[:3]} {mins / 60:+.1f}m" for wd, mins in sorted(by_weekday.items(), key=lambda kv: _WEEKDAY_ORDER[kv[0]])
+            )
+            lines.append(f"   {weekday_str}")
+    return "\n".join(lines)
+
+
+_WEEKDAY_ORDER = {
+    "Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3,
+    "Friday": 4, "Saturday": 5, "Sunday": 6,
+}

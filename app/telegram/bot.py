@@ -15,6 +15,7 @@ from app.briefings.builder import (
     build_evening_briefing,
     build_morning_briefing,
     build_next_departures,
+    build_stats_message,
     build_train_status,
 )
 from app.config import Settings
@@ -39,6 +40,7 @@ def build_application(settings: Settings) -> Application:
     application.add_handler(CommandHandler("morning", _cmd_morning))
     application.add_handler(CommandHandler("evening", _cmd_evening))
     application.add_handler(CommandHandler("train", _cmd_train))
+    application.add_handler(CommandHandler("stats", _cmd_stats))
     return application
 
 
@@ -97,6 +99,18 @@ async def _cmd_train(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         service_date = datetime.now(settings.tzinfo).date()
         snapshot = poll_once(settings)
         text = build_train_status(conn, snapshot, settings, service_date, train_no)
+    finally:
+        conn.close()
+    await update.message.reply_text(text)
+
+
+async def _cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings: Settings = context.bot_data["settings"]
+    if not _authorized(update, settings):
+        return
+    conn = connect(settings.db_path)
+    try:
+        text = build_stats_message(conn, settings)
     finally:
         conn.close()
     await update.message.reply_text(text)

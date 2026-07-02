@@ -6,7 +6,7 @@ in-process for `_SNAPSHOT_TTL` seconds so N browser tabs polling `/summary` +
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.core.delay import delay_glyph, stop_delay
 from app.core.models import NoService
+from app.core.stats import compute_stats
 from app.core.trip_resolver import active_service_ids, resolve_today
 from app.db import connect
 from app.realtime.poller import poll_once
@@ -239,32 +240,8 @@ def get_geometry():
 
 @router.get("/stats")
 def get_stats():
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     conn = connect(settings.db_path)
     try:
-        rows = conn.execute(
-            "SELECT train_no, ts, delay_sec FROM delay_history WHERE ts >= ? AND delay_sec IS NOT NULL", (cutoff,)
-        ).fetchall()
+        return compute_stats(conn, settings.tzinfo)
     finally:
         conn.close()
-
-    by_train: dict[str, list] = {}
-    for r in rows:
-        by_train.setdefault(r["train_no"], []).append(r)
-
-    result = {}
-    for train_no, obs in by_train.items():
-        on_time = sum(1 for o in obs if o["delay_sec"] <= 120)
-        by_weekday: dict[str, list[int]] = {}
-        for o in obs:
-            weekday = datetime.fromisoformat(o["ts"]).astimezone(settings.tzinfo).strftime("%A")
-            by_weekday.setdefault(weekday, []).append(o["delay_sec"])
-        result[train_no] = {
-            "n_observations": len(obs),
-            "on_time_pct": round(100 * on_time / len(obs), 1),
-            "avg_delay_sec": round(sum(o["delay_sec"] for o in obs) / len(obs), 1),
-            "avg_delay_by_weekday": {
-                wd: round(sum(vals) / len(vals), 1) for wd, vals in by_weekday.items()
-            },
-        }
-    return result
