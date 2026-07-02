@@ -1,1 +1,1 @@
-"""Public REST API routers + caching layer (design §5). Implemented in Phase 4."""
+"""Public REST API routers + caching layer (design §5). See routes.py."""

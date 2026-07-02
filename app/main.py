@@ -1,29 +1,28 @@
-"""Process entrypoint: Telegram bot polling + APScheduler briefing jobs (design §4.4, §8.7).
+"""FastAPI app + lifespan (design §10, §3): serves `/api/v1/*` + `/health`
+(design §5), and in its lifespan starts the Telegram bot polling, the
+APScheduler briefing cron jobs (design §4.4), and the realtime alert-engine loop
+(design §4.3/§4.5) as background tasks -- one asyncio process per design §3.
 
-Started via `metra run` (long-running). Wires:
-- periodic static ingest (design §4.1: cheap `published.txt` check every ~10 min)
-- APScheduler cron jobs for the morning/evening briefings, Mon-Fri, in `settings.tzinfo`
-  (never a fixed UTC offset -- DST-safe per design §8.2)
-- cold-start grace (design §8.7): if the process starts within 10 min after a
-  briefing's scheduled time and today's briefing hasn't gone out yet (tracked in
-  `meta`), send it late with a "(delayed briefing)" tag instead of waiting for
-  tomorrow's cron fire.
+Bot/briefings/alert-engine are gated on `TELEGRAM_BOT_TOKEN` being configured so
+the API can be run and tested standalone (e.g. local dev, or the Phase 1-3
+components not yet wired) without Telegram credentials.
 
-Briefings and on-demand commands (`/next`, `/train`, etc.) still use a single fresh
-`poll_once()` each -- no need to share state for those. The Alert Engine (design
-§4.5), by contrast, needs a continuous adaptive-cadence loop (design §4.3) feeding
-a shared `StateStore` so it can diff consecutive snapshots; that loop is started
-here as a background task (see app/realtime/loop.py).
+Started via `metra run` (uvicorn) or directly: `uv run uvicorn app.main:app`.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import router as api_router
 from app.briefings.builder import build_evening_briefing, build_morning_briefing
 from app.config import Settings, settings
 from app.db import briefing_already_sent, connect, mark_briefing_sent
@@ -36,6 +35,8 @@ from app.telegram.bot import build_application, push_message
 logger = logging.getLogger(__name__)
 
 GRACE_WINDOW = timedelta(minutes=10)
+
+state_store = StateStore()
 
 
 def _parse_hhmm(raw: str) -> tuple[int, int]:
@@ -79,48 +80,86 @@ def _periodic_ingest() -> None:
         logger.exception("periodic ingest failed")
 
 
-async def run() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     ingest(settings)  # ensure a schedule DB exists before anything else runs
-
-    application = build_application(settings)
 
     scheduler = AsyncIOScheduler(timezone=settings.tzinfo)
     scheduler.add_job(_periodic_ingest, "interval", minutes=10, id="static_ingest")
 
-    m_h, m_m = _parse_hhmm(settings.MORNING_BRIEFING)
-    e_h, e_m = _parse_hhmm(settings.EVENING_BRIEFING)
-    scheduler.add_job(
-        lambda: asyncio.ensure_future(send_briefing(application, settings, "morning")),
-        CronTrigger(day_of_week="mon-fri", hour=m_h, minute=m_m, timezone=settings.tzinfo),
-        id="morning_briefing",
-    )
-    scheduler.add_job(
-        lambda: asyncio.ensure_future(send_briefing(application, settings, "evening")),
-        CronTrigger(day_of_week="mon-fri", hour=e_h, minute=e_m, timezone=settings.tzinfo),
-        id="evening_briefing",
-    )
-    scheduler.start()
-
-    state_store = StateStore()
-
-    async with application:
+    application = None
+    alert_task = None
+    if settings.TELEGRAM_BOT_TOKEN:
+        application = build_application(settings)
+        await application.initialize()
         await application.start()
         await application.updater.start_polling()
         logger.info("telegram bot polling started")
-        await _cold_start_grace(application, settings)
 
+        m_h, m_m = _parse_hhmm(settings.MORNING_BRIEFING)
+        e_h, e_m = _parse_hhmm(settings.EVENING_BRIEFING)
+        scheduler.add_job(
+            lambda: asyncio.ensure_future(send_briefing(application, settings, "morning")),
+            CronTrigger(day_of_week="mon-fri", hour=m_h, minute=m_m, timezone=settings.tzinfo),
+            id="morning_briefing",
+        )
+        scheduler.add_job(
+            lambda: asyncio.ensure_future(send_briefing(application, settings, "evening")),
+            CronTrigger(day_of_week="mon-fri", hour=e_h, minute=e_m, timezone=settings.tzinfo),
+            id="evening_briefing",
+        )
+        await _cold_start_grace(application, settings)
         alert_task = asyncio.create_task(run_loop(settings, state_store, application))
-        try:
-            await asyncio.Event().wait()  # run forever, until cancelled/killed
-        finally:
+    else:
+        logger.info("no TELEGRAM_BOT_TOKEN configured -- bot, briefings, and alert engine disabled")
+
+    scheduler.start()
+    app.state.application = application
+
+    try:
+        yield
+    finally:
+        if alert_task is not None:
             alert_task.cancel()
+        if application is not None:
             await application.updater.stop()
             await application.stop()
+            await application.shutdown()
+        scheduler.shutdown()
+
+
+app = FastAPI(title="metra-agent", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.CORS_ORIGIN, "http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+app.include_router(api_router)
+
+
+@app.get("/health")
+def health():
+    db_age_sec = None
+    if settings.db_path.exists():
+        db_age_sec = round(time.time() - settings.db_path.stat().st_mtime, 1)
+    poller_fresh_sec = None
+    if state_store.latest is not None:
+        poller_fresh_sec = round((datetime.now(timezone.utc) - state_store.latest.fetched_at).total_seconds(), 1)
+    return {
+        "status": "ok",
+        "db_age_sec": db_age_sec,
+        "poller_last_fetch_sec_ago": poller_fresh_sec,
+        "has_realtime": settings.has_realtime,
+        "has_telegram": bool(settings.TELEGRAM_BOT_TOKEN),
+    }
 
 
 def main() -> None:
-    asyncio.run(run())
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8010, log_level="info")
 
 
 if __name__ == "__main__":

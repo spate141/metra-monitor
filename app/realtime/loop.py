@@ -15,16 +15,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 
 from app.alerts.engine import apply_quiet_hours, evaluate, in_watch_window
 from app.config import Settings
+from app.core.delay import stop_delay
 from app.core.models import NoService
 from app.core.trip_resolver import resolve_today
 from app.db import connect, fingerprint_recently_sent, mark_fingerprint_sent
 from app.ingest.gtfs_time import gtfs_time_to_datetime
 from app.realtime.poller import poll_once
-from app.realtime.state_store import StateStore
+from app.realtime.state_store import Snapshot, StateStore
 from app.telegram.bot import push_message
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,35 @@ async def _dispatch_events(application, settings: Settings, events, now: datetim
         conn.close()
 
 
+def _record_delay_history(settings: Settings, resolved: dict, snapshot: Snapshot, now: datetime) -> None:
+    """Append a delay observation per resolved trip (design §7 `delay_history`) --
+    feeds the `/api/v1/stats` on-time% aggregate. Skipped when there's no live delay
+    to record (never fabricate a value -- design edge case #4).
+    """
+    watch_stop = _watch_stop_map(settings)
+    rows = []
+    for slot, result in resolved.items():
+        if isinstance(result, NoService):
+            continue
+        stop_id = watch_stop[slot]
+        entry = snapshot.trip_updates.get(result.trip_id)
+        delay_sec = stop_delay(entry, stop_id)
+        if delay_sec is None:
+            continue
+        rows.append((datetime.now(timezone.utc).isoformat(), result.trip_id, result.train_no, stop_id, delay_sec, "realtime"))
+    if not rows:
+        return
+    conn = connect(settings.db_path)
+    try:
+        conn.executemany(
+            "INSERT INTO delay_history (ts, trip_id, train_no, stop_id, delay_sec, source) VALUES (?,?,?,?,?,?)",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 async def run_loop(settings: Settings, state_store: StateStore, application) -> None:
     """Runs forever. Call as a background asyncio task from app.main."""
     if not settings.has_realtime:
@@ -101,6 +131,7 @@ async def run_loop(settings: Settings, state_store: StateStore, application) -> 
         snapshot = poll_once(settings)
         previous = state_store.latest
         state_store.update(snapshot)
+        _record_delay_history(settings, resolved, snapshot, now)
 
         if previous is not None:
             events = evaluate(previous, snapshot, resolved, settings, now)

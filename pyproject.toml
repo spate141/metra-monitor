@@ -12,6 +12,8 @@ dependencies = [
     "protobuf>=5.0",
     "python-telegram-bot>=21.0",
     "apscheduler>=3.10",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
 ]
 
 [project.scripts]
