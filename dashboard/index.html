@@ -5,10 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>metra-monitor — MD-W live</title>
     <meta name="description" content="Live MD-W commute status, map, and alerts." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <header>
-      <div class="logo">🚆 metra-monitor <span class="line-badge">MD-W</span></div>
+      <div class="logo">
+        <span class="logo-mark">🚆</span> metra-monitor
+        <span class="line-badge" id="line-badge">MD-W</span>
+      </div>
       <div class="meta">
         <span class="last-update" id="last-update">connecting…</span>
         <span class="refresh-dot" id="refresh-dot"></span>
@@ -21,30 +30,32 @@
 
     <div id="feed-banner" class="feed-banner" hidden>⚠️ Feed stale — showing last known data</div>
 
-    <section class="hero-strip" id="hero-strip">
-      <div class="hero-card" id="card-morning">
-        <div class="hero-card-label">🌅 Morning · Roselle → Chicago</div>
-        <div class="hero-card-body">Loading…</div>
-      </div>
-      <div class="hero-card" id="card-evening">
-        <div class="hero-card-label">🌆 Evening · Chicago → Roselle</div>
-        <div class="hero-card-body">Loading…</div>
-      </div>
-    </section>
+    <div id="alerts-ticker" class="alerts-ticker" hidden></div>
 
-    <div id="alerts-ribbon" class="alerts-ribbon" hidden></div>
+    <main class="layout">
+      <section class="board" id="board">
+        <div class="board-row" id="row-morning" data-slot="morning">
+          <div class="board-row-label">Morning <span class="board-route">Roselle ▸ Chicago</span></div>
+          <div class="board-row-body">Loading…</div>
+        </div>
+        <div class="board-row" id="row-evening" data-slot="evening">
+          <div class="board-row-label">Evening <span class="board-route">Chicago ▸ Roselle</span></div>
+          <div class="board-row-body">Loading…</div>
+        </div>
+      </section>
 
-    <main>
-      <div id="map"></div>
-      <aside id="drawer" class="drawer" hidden>
-        <button class="drawer-close" id="drawer-close" aria-label="Close">✕</button>
-        <div id="drawer-content"></div>
-      </aside>
+      <section class="map-pane">
+        <div id="map"></div>
+        <aside id="sheet" class="sheet" hidden>
+          <button class="sheet-close" id="sheet-close" aria-label="Close">✕</button>
+          <div id="sheet-content"></div>
+        </aside>
+      </section>
     </main>
 
-    <section class="stats-panel" id="stats-panel">
-      <div class="stats-panel-title">30-day on-time performance</div>
-      <div id="stats-body" class="stats-body">Loading…</div>
+    <section class="trend" id="trend">
+      <div class="trend-title">30-day on-time performance</div>
+      <div id="trend-body" class="trend-body">Loading…</div>
     </section>
 
     <footer>

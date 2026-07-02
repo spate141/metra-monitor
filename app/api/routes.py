@@ -207,6 +207,9 @@ def _build_geometry() -> dict:
             "SELECT shape_id, shape_pt_sequence, shape_pt_lat, shape_pt_lon FROM shapes ORDER BY shape_id, shape_pt_sequence"
         ).fetchall()
         stops = conn.execute("SELECT stop_id, stop_name, stop_lat, stop_lon FROM stops").fetchall()
+        route = conn.execute(
+            "SELECT route_color, route_text_color FROM routes WHERE route_id = ?", (settings.ROUTE_ID,)
+        ).fetchone()
     finally:
         conn.close()
 
@@ -228,6 +231,8 @@ def _build_geometry() -> dict:
     return {
         "line": {"type": "FeatureCollection", "features": line_features},
         "stops": {"type": "FeatureCollection", "features": stop_features},
+        "route_color": route["route_color"] if route else None,
+        "route_text_color": route["route_text_color"] if route else None,
     }
 
 

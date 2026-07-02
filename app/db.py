@@ -17,7 +17,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS routes (
     route_id TEXT PRIMARY KEY,
     route_short_name TEXT,
-    route_long_name TEXT
+    route_long_name TEXT,
+    route_color TEXT,
+    route_text_color TEXT
 );
 
 CREATE TABLE IF NOT EXISTS trips (

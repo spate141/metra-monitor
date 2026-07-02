@@ -65,6 +65,8 @@ export interface TripDetail {
 export interface Geometry {
   line: GeoJSON.FeatureCollection;
   stops: GeoJSON.FeatureCollection;
+  route_color?: string | null;
+  route_text_color?: string | null;
 }
 
 export interface StatsEntry {

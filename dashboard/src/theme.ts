@@ -1,6 +1,6 @@
 const STORAGE_KEY = "metra-theme";
 
-export function initTheme(): void {
+export function initTheme(onChange?: () => void): void {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved === "light" || saved === "dark") {
     document.documentElement.setAttribute("data-theme", saved);
@@ -11,5 +11,6 @@ export function initTheme(): void {
     const next = current === "dark" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", next);
     localStorage.setItem(STORAGE_KEY, next);
+    onChange?.();
   });
 }

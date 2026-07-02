@@ -32,9 +32,45 @@ function chevronSvg(color: string, bearing: number | null): string {
 let map: MLMap;
 const markers = new Map<string, Marker>();
 let onTrainClick: ((trainNo: string) => void) | null = null;
+let lineColor = "#c8102e"; // overwritten by setLineColor() once the feed's route_color loads
 
 export function setTrainClickHandler(fn: (trainNo: string) => void): void {
   onTrainClick = fn;
+}
+
+/** The resolved signature accent (feed's route_color once loaded, else the
+ * pre-load fallback) -- used by main.ts to theme the header badge / --line CSS var. */
+export function getLineColor(): string {
+  return lineColor;
+}
+
+function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function isDark(): boolean {
+  return document.documentElement.getAttribute("data-theme") !== "light";
+}
+
+/** Applies theme-aware paint to the stops/labels layers -- fixes the old
+ * hardcoded-dark halo that looked broken in light mode. Safe to call before
+ * the layers exist (checked via getLayer). */
+export function applyMapTheme(): void {
+  if (!map || !map.getLayer("md-w-stops")) return;
+  const dark = isDark();
+  map.setPaintProperty("md-w-stops", "circle-color", dark ? "#0b0d10" : "#ffffff");
+  map.setPaintProperty("md-w-stops", "circle-stroke-color", lineColor);
+  map.setPaintProperty("md-w-stop-labels", "text-color", cssVar("--ink-muted") || (dark ? "#8b95a1" : "#5b6570"));
+  map.setPaintProperty("md-w-stop-labels", "text-halo-color", cssVar("--bg") || (dark ? "#0b0d10" : "#f5f4f0"));
+}
+
+/** Sets the signature line color everywhere it's used on the map (route line +
+ * stop outlines), called once /api/v1/geometry's route_color resolves. */
+export function setLineColor(color: string): void {
+  lineColor = color;
+  if (!map || !map.getLayer("md-w-line")) return;
+  map.setPaintProperty("md-w-line", "line-color", lineColor);
+  map.setPaintProperty("md-w-stops", "circle-stroke-color", lineColor);
 }
 
 export async function initMap(): Promise<MLMap> {
@@ -50,12 +86,14 @@ export async function initMap(): Promise<MLMap> {
 
   try {
     const geometry = await api.geometry();
+    if (geometry.route_color) lineColor = geometry.route_color;
+
     map.addSource("md-w-line", { type: "geojson", data: geometry.line });
     map.addLayer({
       id: "md-w-line",
       type: "line",
       source: "md-w-line",
-      paint: { "line-color": "#60a5fa", "line-width": 3, "line-opacity": 0.7 },
+      paint: { "line-color": lineColor, "line-width": 3.5, "line-opacity": 0.85 },
     });
 
     map.addSource("md-w-stops", { type: "geojson", data: geometry.stops });
@@ -65,9 +103,9 @@ export async function initMap(): Promise<MLMap> {
       source: "md-w-stops",
       paint: {
         "circle-radius": 4,
-        "circle-color": "#e6edf3",
-        "circle-stroke-width": 1,
-        "circle-stroke-color": "#60a5fa",
+        "circle-color": isDark() ? "#0b0d10" : "#ffffff",
+        "circle-stroke-width": 1.5,
+        "circle-stroke-color": lineColor,
       },
     });
     map.addLayer({
@@ -81,7 +119,11 @@ export async function initMap(): Promise<MLMap> {
         "text-offset": [0, 1],
         "text-anchor": "top",
       },
-      paint: { "text-color": "#8b949e", "text-halo-color": "#1f1f1e", "text-halo-width": 1 },
+      paint: {
+        "text-color": cssVar("--ink-muted"),
+        "text-halo-color": cssVar("--bg"),
+        "text-halo-width": 1,
+      },
     });
   } catch (err) {
     console.error("failed to load /api/v1/geometry", err);
@@ -128,9 +170,9 @@ export function updatePositions(positions: Position[]): void {
   }
 }
 
-export function renderDrawer(trip: TripDetail): void {
-  const drawer = document.getElementById("drawer")!;
-  const content = document.getElementById("drawer-content")!;
+export function renderSheet(trip: TripDetail): void {
+  const sheet = document.getElementById("sheet")!;
+  const content = document.getElementById("sheet-content")!;
   const rows = trip.stops
     .map(
       (s) => `<tr>
@@ -147,5 +189,5 @@ export function renderDrawer(trip: TripDetail): void {
       <tbody>${rows}</tbody>
     </table>
   `;
-  drawer.hidden = false;
+  sheet.hidden = false;
 }

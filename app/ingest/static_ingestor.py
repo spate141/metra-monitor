@@ -81,8 +81,18 @@ def _build_db(zf: zipfile.ZipFile, route_id: str, out_path: Path) -> None:
 
     routes = [r for r in _read_csv(zf, "routes.txt") if r["route_id"] == route_id]
     conn.executemany(
-        "INSERT INTO routes (route_id, route_short_name, route_long_name) VALUES (?,?,?)",
-        [(r["route_id"], r["route_short_name"], r["route_long_name"]) for r in routes],
+        "INSERT INTO routes (route_id, route_short_name, route_long_name, route_color, route_text_color) "
+        "VALUES (?,?,?,?,?)",
+        [
+            (
+                r["route_id"],
+                r["route_short_name"],
+                r["route_long_name"],
+                (f"#{r['route_color']}" if r.get("route_color") else None),
+                (f"#{r['route_text_color']}" if r.get("route_text_color") else None),
+            )
+            for r in routes
+        ],
     )
 
     all_trips = _read_csv(zf, "trips.txt")

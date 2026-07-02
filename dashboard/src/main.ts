@@ -1,10 +1,10 @@
 import "./style.css";
 import { api } from "./api";
 import { initTheme } from "./theme";
-import { renderHero } from "./hero";
+import { renderBoard } from "./board";
 import { renderAlerts } from "./alerts";
 import { renderStats } from "./stats";
-import { initMap, updatePositions, renderDrawer, setTrainClickHandler } from "./map";
+import { initMap, updatePositions, renderSheet, setTrainClickHandler, applyMapTheme, getLineColor } from "./map";
 
 const SUMMARY_POSITIONS_INTERVAL_MS = 30_000;
 const ALERTS_INTERVAL_MS = 60_000;
@@ -34,7 +34,7 @@ function tickClock(): void {
 async function pollSummaryAndPositions(): Promise<void> {
   try {
     const [summary, positions] = await Promise.all([api.summary(), api.positions()]);
-    renderHero(summary);
+    renderBoard(summary);
     updatePositions(positions);
     markUpdated(true);
   } catch (err) {
@@ -89,19 +89,24 @@ class Poller {
 }
 
 async function main(): Promise<void> {
-  initTheme();
+  initTheme(() => applyMapTheme());
   setInterval(tickClock, 1000);
 
   await initMap();
+  // The map resolves the feed's real GTFS route_color; mirror it into the CSS
+  // custom property so the header badge / trend bars stay in sync with the map.
+  document.documentElement.style.setProperty("--line", getLineColor());
+  applyMapTheme();
+
   setTrainClickHandler(async (trainNo) => {
     try {
-      renderDrawer(await api.trip(trainNo));
+      renderSheet(await api.trip(trainNo));
     } catch (err) {
       console.error("failed to load trip detail", err);
     }
   });
-  document.getElementById("drawer-close")!.addEventListener("click", () => {
-    document.getElementById("drawer")!.hidden = true;
+  document.getElementById("sheet-close")!.addEventListener("click", () => {
+    document.getElementById("sheet")!.hidden = true;
   });
 
   const pollers = [
