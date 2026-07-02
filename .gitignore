@@ -153,6 +153,9 @@ metra.db-shm
 metra.db-wal
 metra.tmp.db
 
+# metra-agent dashboard (Vite/Node)
+dashboard/node_modules/
+
 # Environments
 .env
 .envrc

@@ -1,0 +1,266 @@
+/* Design tokens ported from snehal.ai / garden-agent's style — same palette,
+   same fonts, so metra.snehal.ai feels like the same site family. */
+:root,
+[data-theme="light"] {
+  --bg:            #fafaf9;
+  --bg-alt:        #f8fafc;
+  --bg-header:     rgba(250, 250, 249, 0.92);
+  --text:          #1e293b;
+  --text-muted:    #64748b;
+  --heading:       #0f172a;
+  --border:        #e2e8f0;
+  --accent:        #1d4ed8;
+  --accent-2:      #2563eb;
+  --accent-bg:     rgba(29, 78, 216, 0.07);
+  --accent-border: rgba(29, 78, 216, 0.2);
+  --card-bg:       #f3f3f0;
+  --card-border:   rgba(0, 0, 0, 0.08);
+  --header-shadow: 0 1px 8px rgba(0, 0, 0, 0.07);
+  --color-success: #4e7f2f;
+  --color-warn:    #b45309;
+  --color-danger:  #b91c1c;
+}
+
+[data-theme="dark"] {
+  --bg:            #1f1f1e;
+  --bg-alt:        #272726;
+  --bg-header:     rgba(31, 31, 30, 0.92);
+  --text:          #e6edf3;
+  --text-muted:    #8b949e;
+  --heading:       #f0f6fc;
+  --border:        #3d3d3c;
+  --accent:        #60a5fa;
+  --accent-2:      #93c5fd;
+  --accent-bg:     rgba(96, 165, 250, 0.10);
+  --accent-border: rgba(96, 165, 250, 0.28);
+  --card-bg:       #31312e;
+  --card-border:   rgba(255, 255, 255, 0.08);
+  --header-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
+  --color-success: #7db84e;
+  --color-warn:    #eab308;
+  --color-danger:  #f87171;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+/* ── HEADER ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 24px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-header);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--header-shadow);
+  z-index: 20;
+}
+.logo {
+  font-family: 'Bitter', Georgia, serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--heading);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.line-badge {
+  font-family: 'Nunito Sans', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.meta { display: flex; align-items: center; gap: 10px; }
+.last-update {
+  color: var(--text-muted);
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.refresh-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--color-success);
+  opacity: 0.45;
+  transition: opacity 0.3s;
+}
+.refresh-dot.active { opacity: 1; }
+.refresh-dot.stale { background: var(--color-danger); opacity: 1; }
+
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--accent-border); color: var(--accent); background: var(--accent-bg); }
+.theme-toggle .icon-sun { display: none; }
+.theme-toggle .icon-moon { display: block; }
+[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+
+/* ── FEED STALE BANNER ── */
+.feed-banner {
+  background: var(--color-danger);
+  color: #1a1a1a;
+  font-weight: 700;
+  font-size: 13px;
+  text-align: center;
+  padding: 6px;
+}
+
+/* ── HERO STRIP ── */
+.hero-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 16px 20px;
+}
+@media (max-width: 720px) { .hero-strip { grid-template-columns: 1fr; } }
+
+.hero-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.hero-card.delayed-minor { border-color: var(--color-warn); box-shadow: 0 0 0 1px var(--color-warn); }
+.hero-card.delayed-major { border-color: var(--color-danger); box-shadow: 0 0 12px rgba(248, 113, 113, 0.35); }
+.hero-card.annulled { border-color: var(--color-danger); opacity: 0.85; }
+
+.hero-card-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+.hero-card-body { display: flex; flex-direction: column; gap: 6px; }
+.hero-train-no {
+  font-family: 'Bitter', Georgia, serif;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.hero-countdown {
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.hero-status { font-size: 13px; }
+.hero-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+}
+.badge-on_time { background: rgba(78,127,47,0.15); color: var(--color-success); }
+.badge-minor { background: rgba(234,179,8,0.15); color: var(--color-warn); }
+.badge-major { background: rgba(248,113,113,0.15); color: var(--color-danger); }
+.badge-annulled { background: rgba(248,113,113,0.25); color: var(--color-danger); }
+.badge-unknown { background: var(--bg-alt); color: var(--text-muted); }
+
+/* ── ALERTS RIBBON ── */
+.alerts-ribbon {
+  background: var(--accent-bg);
+  border-bottom: 1px solid var(--accent-border);
+  color: var(--accent-2);
+  font-size: 13px;
+  padding: 8px 20px;
+  cursor: pointer;
+}
+.alerts-ribbon ul { list-style: none; margin-top: 4px; display: none; }
+.alerts-ribbon.expanded ul { display: block; }
+.alerts-ribbon li { padding: 3px 0; }
+
+/* ── MAP ── */
+main { position: relative; flex: 1; min-height: 420px; }
+#map { position: absolute; inset: 0; }
+
+.drawer {
+  position: absolute;
+  top: 12px; right: 12px; bottom: 12px;
+  width: 300px;
+  max-width: calc(100% - 24px);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 16px;
+  overflow-y: auto;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  z-index: 10;
+}
+.drawer-close {
+  position: absolute; top: 10px; right: 10px;
+  background: none; border: none; color: var(--text-muted);
+  font-size: 14px; cursor: pointer;
+}
+.drawer h3 { font-family: 'Bitter', Georgia, serif; margin-bottom: 10px; }
+.drawer table { width: 100%; font-size: 12px; border-collapse: collapse; }
+.drawer td { padding: 3px 0; border-bottom: 1px solid var(--border); }
+
+.train-marker {
+  width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.train-marker svg { filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); }
+.train-marker.my-train { animation: pulse 1.6s infinite; }
+.train-marker.stale { opacity: 0.45; }
+@keyframes pulse {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(96,165,250,0.6)); }
+  50% { filter: drop-shadow(0 0 6px rgba(96,165,250,0.9)); }
+}
+
+/* ── STATS PANEL ── */
+.stats-panel {
+  border-top: 1px solid var(--border);
+  padding: 16px 20px 24px;
+}
+.stats-panel-title {
+  font-size: 12px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px;
+}
+.stats-body { display: flex; flex-wrap: wrap; gap: 16px; }
+.stat-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  min-width: 220px;
+}
+.stat-card-title { font-family: 'Bitter', Georgia, serif; font-weight: 700; margin-bottom: 6px; }
+.stat-card-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); }
+
+footer {
+  padding: 10px 20px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  text-align: center;
+}

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>metra-agent — MD-W live</title>
+    <meta name="description" content="Live MD-W commute status, map, and alerts." />
+  </head>
+  <body>
+    <header>
+      <div class="logo">🚆 metra-agent <span class="line-badge">MD-W</span></div>
+      <div class="meta">
+        <span class="last-update" id="last-update">connecting…</span>
+        <span class="refresh-dot" id="refresh-dot"></span>
+        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+          <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div id="feed-banner" class="feed-banner" hidden>⚠️ Feed stale — showing last known data</div>
+
+    <section class="hero-strip" id="hero-strip">
+      <div class="hero-card" id="card-morning">
+        <div class="hero-card-label">🌅 Morning · Roselle → Chicago</div>
+        <div class="hero-card-body">Loading…</div>
+      </div>
+      <div class="hero-card" id="card-evening">
+        <div class="hero-card-label">🌆 Evening · Chicago → Roselle</div>
+        <div class="hero-card-body">Loading…</div>
+      </div>
+    </section>
+
+    <div id="alerts-ribbon" class="alerts-ribbon" hidden></div>
+
+    <main>
+      <div id="map"></div>
+      <aside id="drawer" class="drawer" hidden>
+        <button class="drawer-close" id="drawer-close" aria-label="Close">✕</button>
+        <div id="drawer-content"></div>
+      </aside>
+    </main>
+
+    <section class="stats-panel" id="stats-panel">
+      <div class="stats-panel-title">30-day on-time performance</div>
+      <div id="stats-body" class="stats-body">Loading…</div>
+    </section>
+
+    <footer>
+      <span>Data from Metra GTFS, redistributed per license · not affiliated with Metra</span>
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
