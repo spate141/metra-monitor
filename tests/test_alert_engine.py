@@ -15,7 +15,7 @@ from datetime import date, datetime
 
 from google.transit import gtfs_realtime_pb2
 
-from app.alerts.engine import apply_quiet_hours, evaluate, in_quiet_hours
+from app.alerts.engine import apply_notification_mode, apply_quiet_hours, evaluate, in_commute_window, in_quiet_hours
 from app.config import Settings
 from app.core.models import NoService, ResolvedTrip, StopTime
 from app.realtime.poller import _parse_alerts, _parse_trip_updates
@@ -217,3 +217,52 @@ def test_quiet_hours_does_not_suppress_during_the_day():
 
     events = [AlertEvent("fp1", "some alert")]
     assert apply_quiet_hours(events, now, settings) == events
+
+
+def test_in_commute_window_before_morning_cutoff():
+    settings = _settings()
+    assert in_commute_window(_now_at(7, 0), settings)
+
+
+def test_in_commute_window_at_and_after_evening_start():
+    settings = _settings()
+    assert in_commute_window(_now_at(15, 0), settings)
+    assert in_commute_window(_now_at(20, 0), settings)
+
+
+def test_in_commute_window_false_at_noon():
+    settings = _settings()
+    assert not in_commute_window(_now_at(12, 0), settings)
+
+
+def test_in_commute_window_boundary_at_9am_and_3pm():
+    settings = _settings()
+    assert in_commute_window(_now_at(8, 59), settings)
+    assert not in_commute_window(_now_at(9, 0), settings)
+    assert not in_commute_window(_now_at(14, 59), settings)
+    assert in_commute_window(_now_at(15, 0), settings)
+
+
+def test_apply_notification_mode_all_passes_through():
+    settings = _settings()
+    from app.alerts.engine import AlertEvent
+
+    events = [AlertEvent("fp1", "some alert")]
+    assert apply_notification_mode(events, _now_at(12, 0), settings, "all") == events
+
+
+def test_apply_notification_mode_commute_drops_midday_alerts():
+    settings = _settings()
+    from app.alerts.engine import AlertEvent
+
+    events = [AlertEvent("fp1", "some alert")]
+    assert apply_notification_mode(events, _now_at(12, 0), settings, "commute") == []
+
+
+def test_apply_notification_mode_commute_keeps_morning_and_evening_alerts():
+    settings = _settings()
+    from app.alerts.engine import AlertEvent
+
+    events = [AlertEvent("fp1", "some alert")]
+    assert apply_notification_mode(events, _now_at(7, 0), settings, "commute") == events
+    assert apply_notification_mode(events, _now_at(20, 0), settings, "commute") == events

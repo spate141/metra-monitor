@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     EVENING_BRIEFING: str = "15:30"
     QUIET_HOURS: str = "22:00-05:30"
 
+    # Commute-mode notification window (design: only alert during the actual
+    # commute, not all day) -- see app/alerts/engine.py in_commute_window().
+    COMMUTE_MORNING_END: str = "09:00"
+    COMMUTE_EVENING_START: str = "15:00"
+
     # Alert engine (design §4.5, open item #3): push a "cleared" notice when a
     # line/stop-level GTFS alert leaves the feed. Off by default -- my-train delay
     # transitions already report "back to on time" via the band-change alert.

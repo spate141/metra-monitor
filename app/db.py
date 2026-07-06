@@ -140,6 +140,24 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.commit()
 
 
+def get_notification_mode(conn: sqlite3.Connection) -> str:
+    """'commute' (default, only push during commute windows) or 'all'."""
+    return get_meta(conn, "notification_mode") or "commute"
+
+
+def set_notification_mode(conn: sqlite3.Connection, mode: str) -> None:
+    set_meta(conn, "notification_mode", mode)
+
+
+def get_paused_until(conn: sqlite3.Connection) -> str | None:
+    """ISO date string alerts are paused through (inclusive), or None if not paused."""
+    return get_meta(conn, "paused_until") or None
+
+
+def set_paused_until(conn: sqlite3.Connection, iso_date: str | None) -> None:
+    set_meta(conn, "paused_until", iso_date or "")
+
+
 def briefing_already_sent(conn: sqlite3.Connection, slot: str, service_date) -> bool:
     """Cold-start grace bookkeeping (design §8.7): has today's `slot` briefing gone out?"""
     return get_meta(conn, f"briefing_sent:{slot}:{service_date.isoformat()}") == "1"

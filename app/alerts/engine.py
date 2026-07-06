@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 from app.config import Settings
 from app.core.delay import delay_band, stop_delay
@@ -172,3 +172,26 @@ def apply_quiet_hours(events: list[AlertEvent], now: datetime, settings: Setting
     if not in_quiet_hours(now, settings.QUIET_HOURS):
         return events
     return [e for e in events if e.exempt_from_quiet_hours]
+
+
+def _parse_hhmm(s: str) -> time:
+    h, m = (int(x) for x in s.split(":"))
+    return time(h, m)
+
+
+def in_commute_window(now: datetime, settings: Settings) -> bool:
+    """Morning (before COMMUTE_MORNING_END) or evening (at/after COMMUTE_EVENING_START)."""
+    t = now.time()
+    return t < _parse_hhmm(settings.COMMUTE_MORNING_END) or t >= _parse_hhmm(settings.COMMUTE_EVENING_START)
+
+
+def apply_notification_mode(
+    events: list[AlertEvent], now: datetime, settings: Settings, mode: str
+) -> list[AlertEvent]:
+    """'commute' mode hard-suppresses everything outside the commute windows
+    (no exemptions -- once #2222 lands, or before the 3pm evening window, we
+    don't care what MD-W is doing). 'all' mode passes events through unchanged.
+    """
+    if mode != "commute":
+        return events
+    return events if in_commute_window(now, settings) else []

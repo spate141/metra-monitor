@@ -7,7 +7,7 @@ these are easy to unit test and to exercise from the CLI without a bot running.
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 
 from app.config import Settings
 from app.core.delay import delay_glyph, stop_delay
@@ -21,6 +21,7 @@ from app.core.trip_resolver import (
     resolve_evening,
     resolve_morning,
 )
+from app.db import get_notification_mode, get_paused_until
 from app.ingest.gtfs_time import gtfs_time_to_datetime, parse_gtfs_time_to_seconds
 from app.realtime.state_store import Snapshot
 
@@ -259,6 +260,27 @@ def build_stats_message(conn: sqlite3.Connection, settings: Settings) -> str:
             )
             lines.append(f"   {weekday_str}")
     return "\n".join(lines)
+
+
+def build_notification_status_message(conn: sqlite3.Connection, settings: Settings) -> str:
+    mode = get_notification_mode(conn)
+    paused_until = get_paused_until(conn)
+
+    if mode == "commute":
+        mode_line = (
+            f"🔔 Mode: commute (alerts only before {settings.COMMUTE_MORNING_END} "
+            f"and at/after {settings.COMMUTE_EVENING_START} CST)"
+        )
+    else:
+        mode_line = "🔔 Mode: all (watching all MD-W trains all day)"
+
+    today = datetime.now(settings.tzinfo).date().isoformat()
+    if paused_until and today <= paused_until:
+        pause_line = "⏸️ Paused: yes, for the rest of today (use /resume to turn back on)"
+    else:
+        pause_line = "▶️ Paused: no"
+
+    return "\n".join([mode_line, pause_line])
 
 
 _WEEKDAY_ORDER = {

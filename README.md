@@ -18,11 +18,14 @@ Point it at your own line and stations via `.env`.
 
 - **Telegram bot**: on-demand `/next`, `/morning`, `/evening`, `/train <no>`,
   `/stats` commands, plus scheduled morning/evening briefings pushed
-  automatically.
+  automatically. Notification control: `/commute_mode` (default -- alerts only
+  around the morning/evening commute), `/monitor_all` (watch MD-W all day),
+  `/pause_today` / `/resume` (mute for the rest of the day), `/status` (show
+  current mode).
 - **Alert engine**: pushes a message only when your train's delay *changes
   band* (on-time → minor → major), gets annulled/un-annulled, or a relevant
   GTFS service alert appears/clears. Never spams on unchanged state, respects
-  configurable quiet hours.
+  configurable quiet hours and commute-mode notification windows.
 - **Public JSON API** (`/api/v1/*`): summary, live positions, per-train trip
   detail, active alerts, line geometry, 30-day on-time stats. Read-only, no
   auth (your Metra API token stays server-side).
