@@ -382,11 +382,13 @@ header {
 .trend-bar { width: 100%; background: var(--line); border-radius: 3px 3px 1px 1px; min-height: 3px; opacity: 0.85; }
 .trend-bar-label { font-size: 9px; color: var(--ink-muted); text-transform: uppercase; }
 
-footer {
+.app-footer {
+  border-top: 1px solid var(--border);
+}
+.app-footer__attribution {
   padding: 12px 24px;
   font-size: 11px;
   color: var(--ink-muted);
-  border-top: 1px solid var(--border);
   text-align: center;
 }
 
@@ -396,7 +398,7 @@ footer {
   border-top: 1px solid var(--border);
   font-size: 13px;
   line-height: 1.4;
-  padding: 12px 20px;
+  padding: 10px 20px;
 }
 .snehal-footer__inner {
   max-width: 960px;
@@ -404,7 +406,7 @@ footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
 }
 .snehal-footer__brand {
@@ -437,6 +439,12 @@ footer {
 @media (max-width: 600px) {
   .snehal-footer__inner {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
+    gap: 6px;
+  }
+  .snehal-footer__brand {
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
   }
 }
