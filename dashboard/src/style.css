@@ -389,3 +389,54 @@ footer {
   border-top: 1px solid var(--border);
   text-align: center;
 }
+
+/* Snehal.ai branding footer — remapped to this project's tokens
+   (--text→--ink, --text-muted/--text-faint→--ink-muted, --accent→--line, --hairline→--border) */
+.snehal-footer {
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 12px 20px;
+}
+.snehal-footer__inner {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.snehal-footer__brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.snehal-footer__name {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+.snehal-footer__name:hover { color: var(--line); }
+.snehal-footer__tagline {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.snehal-footer__social {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.snehal-footer__social a {
+  color: var(--ink-muted);
+  display: inline-flex;
+  transition: color 0.15s ease;
+}
+.snehal-footer__social a:hover { color: var(--line); }
+
+@media (max-width: 600px) {
+  .snehal-footer__inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
