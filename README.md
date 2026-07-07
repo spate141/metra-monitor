@@ -18,8 +18,10 @@ Point it at your own line and stations via `.env`.
 
 - **Telegram bot**: on-demand `/next`, `/morning`, `/evening`, `/train <no>`,
   `/stats` commands, plus scheduled morning/evening briefings pushed
-  automatically. See [Notification control](#notification-control-telegram)
-  below for muting/scoping what gets pushed.
+  automatically. Send `/help` any time for the full command list — it's also
+  registered as Telegram's native "/" command menu. See
+  [Notification control](#notification-control-telegram) below for
+  muting/scoping what gets pushed.
 - **Alert engine**: pushes a message only when your train's delay *changes
   band* (on-time → minor → major), gets annulled/un-annulled, or a relevant
   GTFS service alert appears/clears. Never spams on unchanged state, respects
@@ -45,6 +47,7 @@ about.
 | `/pause_today` | Mutes *everything* — realtime alerts and the scheduled morning/evening briefings — for the rest of today. Auto-resumes tomorrow morning; no need to remember to turn it back on. |
 | `/resume` | Cancels an active `/pause_today` early, same day. |
 | `/status` | Shows the current mode and whether you're paused. |
+| `/help` | Lists every available command (also shown in Telegram's native "/" menu). |
 
 **Direction-aware filtering**: in commute mode, a GTFS service alert that
 explicitly names a direction (inbound/outbound, via the realtime feed's

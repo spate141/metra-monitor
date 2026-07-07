@@ -30,7 +30,7 @@ from app.ingest.static_ingestor import ingest
 from app.realtime.loop import run_loop
 from app.realtime.poller import poll_once
 from app.realtime.state_store import StateStore
-from app.telegram.bot import build_application, push_message
+from app.telegram.bot import build_application, push_message, set_bot_commands
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,7 @@ async def lifespan(app: FastAPI):
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
+        await set_bot_commands(application)
         logger.info("telegram bot polling started")
 
         m_h, m_m = _parse_hhmm(settings.MORNING_BRIEFING)
