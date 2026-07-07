@@ -36,6 +36,7 @@ class AlertEntry:
     description_text: str
     informed_route_ids: set[str] = field(default_factory=set)
     informed_stop_ids: set[str] = field(default_factory=set)
+    informed_direction_ids: set[int] = field(default_factory=set)
 
 
 @dataclass

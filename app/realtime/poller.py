@@ -102,6 +102,11 @@ def _parse_alerts(msg: gtfs_realtime_pb2.FeedMessage) -> dict[str, AlertEntry]:
         a = entity.alert
         route_ids = {e.route_id for e in a.informed_entity if e.route_id}
         stop_ids = {e.stop_id for e in a.informed_entity if e.stop_id}
+        direction_ids = {e.direction_id for e in a.informed_entity if e.HasField("direction_id")} | {
+            e.trip.direction_id
+            for e in a.informed_entity
+            if e.HasField("trip") and e.trip.HasField("direction_id")
+        }
         header = a.header_text.translation[0].text if a.header_text.translation else ""
         desc = a.description_text.translation[0].text if a.description_text.translation else ""
         out[entity.id] = AlertEntry(
@@ -110,6 +115,7 @@ def _parse_alerts(msg: gtfs_realtime_pb2.FeedMessage) -> dict[str, AlertEntry]:
             description_text=desc,
             informed_route_ids=route_ids,
             informed_stop_ids=stop_ids,
+            informed_direction_ids=direction_ids,
         )
     return out
 

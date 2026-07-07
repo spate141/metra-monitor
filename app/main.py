@@ -25,12 +25,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router as api_router
 from app.briefings.builder import build_evening_briefing, build_morning_briefing
 from app.config import Settings, settings
-from app.db import briefing_already_sent, connect, mark_briefing_sent
+from app.db import briefing_already_sent, connect, get_paused_until, mark_briefing_sent
 from app.ingest.static_ingestor import ingest
 from app.realtime.loop import run_loop
 from app.realtime.poller import poll_once
 from app.realtime.state_store import StateStore
-from app.telegram.bot import build_application, push_message
+from app.telegram.bot import build_application, push_message, set_bot_commands
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,10 @@ async def send_briefing(application, settings: Settings, slot: str, delayed_tag:
         service_date = datetime.now(settings.tzinfo).date()
         if briefing_already_sent(conn, slot, service_date):
             logger.info("%s briefing already sent for %s -- skipping", slot, service_date)
+            return
+        paused_until = get_paused_until(conn)
+        if paused_until and service_date.isoformat() <= paused_until:
+            logger.info("alerts paused through %s -- skipping %s briefing", paused_until, slot)
             return
         snapshot = poll_once(settings)
         builder = build_morning_briefing if slot == "morning" else build_evening_briefing
@@ -95,6 +99,7 @@ async def lifespan(app: FastAPI):
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
+        await set_bot_commands(application)
         logger.info("telegram bot polling started")
 
         m_h, m_m = _parse_hhmm(settings.MORNING_BRIEFING)

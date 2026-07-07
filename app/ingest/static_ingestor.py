@@ -186,6 +186,26 @@ def _build_db(zf: zipfile.ZipFile, route_id: str, out_path: Path) -> None:
     )
 
 
+def _copy_operational_state(old_db_path: Path, new_conn: sqlite3.Connection) -> None:
+    """Carry derived/operational state -- notification mode, pause-for-today,
+    delay history, alert dedup fingerprints -- across a schedule rebuild.
+    `_build_db` only populates the static GTFS tables in the new DB, and the
+    swap in `ingest()` replaces the whole file, so without this a rebuild
+    (which runs automatically whenever Metra publishes a new schedule) would
+    silently reset stats and undo any active /pause_today or /monitor_all.
+    """
+    if not old_db_path.exists():
+        return
+    new_conn.execute("ATTACH DATABASE ? AS old_db", (str(old_db_path),))
+    try:
+        new_conn.execute("INSERT INTO meta SELECT * FROM old_db.meta")
+        new_conn.execute("INSERT INTO delay_history SELECT * FROM old_db.delay_history")
+        new_conn.execute("INSERT INTO alert_fingerprints SELECT * FROM old_db.alert_fingerprints")
+        new_conn.commit()
+    finally:
+        new_conn.execute("DETACH DATABASE old_db")
+
+
 def ingest(settings: Settings, force: bool = False) -> bool:
     """Run the static ingest if published.txt changed (or force=True). Returns True if rebuilt."""
     db_path = settings.db_path
@@ -202,7 +222,8 @@ def ingest(settings: Settings, force: bool = False) -> bool:
     _build_db(zf, settings.ROUTE_ID, tmp_path)
 
     conn = connect(tmp_path)
-    set_meta(conn, "published_ts", published_ts)
+    _copy_operational_state(db_path, conn)
+    set_meta(conn, "published_ts", published_ts)  # copied-over old value (if any) loses to this
     conn.close()
 
     tmp_path.replace(db_path)  # atomic swap (design §8.3)

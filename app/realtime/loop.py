@@ -17,12 +17,18 @@ import asyncio
 import logging
 from datetime import datetime, time, timedelta, timezone
 
-from app.alerts.engine import apply_quiet_hours, evaluate, in_watch_window
+from app.alerts.engine import apply_direction_filter, apply_notification_mode, apply_quiet_hours, evaluate, in_watch_window
 from app.config import Settings
 from app.core.delay import stop_delay
 from app.core.models import NoService
 from app.core.trip_resolver import resolve_today
-from app.db import connect, fingerprint_recently_sent, mark_fingerprint_sent
+from app.db import (
+    connect,
+    fingerprint_recently_sent,
+    get_notification_mode,
+    get_paused_until,
+    mark_fingerprint_sent,
+)
 from app.ingest.gtfs_time import gtfs_time_to_datetime
 from app.realtime.poller import poll_once
 from app.realtime.state_store import Snapshot, StateStore
@@ -66,6 +72,14 @@ async def _dispatch_events(application, settings: Settings, events, now: datetim
         return
     conn = connect(settings.db_path)
     try:
+        paused_until = get_paused_until(conn)
+        if paused_until and now.date().isoformat() <= paused_until:
+            return
+        mode = get_notification_mode(conn)
+        events = apply_notification_mode(events, now, settings, mode)
+        events = apply_direction_filter(events, now, settings, mode)
+        if not events:
+            return
         for event in events:
             if fingerprint_recently_sent(conn, event.fingerprint, FINGERPRINT_COOLDOWN):
                 continue
