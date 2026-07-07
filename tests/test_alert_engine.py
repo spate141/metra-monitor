@@ -15,7 +15,14 @@ from datetime import date, datetime
 
 from google.transit import gtfs_realtime_pb2
 
-from app.alerts.engine import apply_notification_mode, apply_quiet_hours, evaluate, in_commute_window, in_quiet_hours
+from app.alerts.engine import (
+    apply_direction_filter,
+    apply_notification_mode,
+    apply_quiet_hours,
+    evaluate,
+    in_commute_window,
+    in_quiet_hours,
+)
 from app.config import Settings
 from app.core.models import NoService, ResolvedTrip, StopTime
 from app.realtime.poller import _parse_alerts, _parse_trip_updates
@@ -55,18 +62,29 @@ def _trip_update_feed(trip_id: str, *, delay_sec: int | None = None, stop_id: st
     return msg
 
 
-def _alert_feed(alert_id: str, route_id: str | None = None, stop_id: str | None = None, header: str = "Delay"):
+def _alert_feed(
+    alert_id: str,
+    route_id: str | None = None,
+    stop_id: str | None = None,
+    header: str = "Delay",
+    direction_id: int | None = None,
+    trip_direction_id: int | None = None,
+):
     msg = gtfs_realtime_pb2.FeedMessage()
     msg.header.gtfs_realtime_version = "2.0"
     e = msg.entity.add()
     e.id = alert_id
     a = e.alert
-    if route_id or stop_id:
+    if route_id or stop_id or direction_id is not None or trip_direction_id is not None:
         ie = a.informed_entity.add()
         if route_id:
             ie.route_id = route_id
         if stop_id:
             ie.stop_id = stop_id
+        if direction_id is not None:
+            ie.direction_id = direction_id
+        if trip_direction_id is not None:
+            ie.trip.direction_id = trip_direction_id
     a.header_text.translation.add(text=header, language="en")
     return msg
 
@@ -170,6 +188,99 @@ def test_irrelevant_service_alert_is_ignored():
     latest = _snapshot(alerts=_parse_alerts(_alert_feed("A1", route_id="UP-N", header="Unrelated line issue")))
 
     assert evaluate(previous, latest, resolved, settings, now) == []
+
+
+def test_parse_alerts_extracts_direction_ids():
+    from app.core.trip_resolver import EVENING_DIRECTION_ID
+
+    parsed = _parse_alerts(_alert_feed("A1", route_id="MD-W", trip_direction_id=EVENING_DIRECTION_ID))
+    assert parsed["A1"].informed_direction_ids == {EVENING_DIRECTION_ID}
+
+
+def test_direction_filter_keeps_matching_morning_direction():
+    from app.core.trip_resolver import MORNING_DIRECTION_ID
+
+    settings = _settings()
+    resolved = _resolved()
+    now = _now_at(7, 0)
+
+    previous = _snapshot(alerts=_parse_alerts(gtfs_realtime_pb2.FeedMessage()))
+    latest = _snapshot(alerts=_parse_alerts(_alert_feed("A1", route_id="MD-W", direction_id=MORNING_DIRECTION_ID)))
+
+    events = evaluate(previous, latest, resolved, settings, now)
+    kept = apply_direction_filter(events, now, settings, "commute")
+    assert kept == events
+
+
+def test_direction_filter_drops_mismatched_evening_alert_during_morning():
+    from app.core.trip_resolver import EVENING_DIRECTION_ID
+
+    settings = _settings()
+    resolved = _resolved()
+    now = _now_at(7, 0)
+
+    previous = _snapshot(alerts=_parse_alerts(gtfs_realtime_pb2.FeedMessage()))
+    latest = _snapshot(alerts=_parse_alerts(_alert_feed("A1", route_id="MD-W", direction_id=EVENING_DIRECTION_ID)))
+
+    events = evaluate(previous, latest, resolved, settings, now)
+    assert apply_direction_filter(events, now, settings, "commute") == []
+
+
+def test_direction_filter_keeps_matching_evening_direction():
+    from app.core.trip_resolver import EVENING_DIRECTION_ID
+
+    settings = _settings()
+    resolved = _resolved()
+    now = _now_at(20, 0)
+
+    previous = _snapshot(alerts=_parse_alerts(gtfs_realtime_pb2.FeedMessage()))
+    latest = _snapshot(alerts=_parse_alerts(_alert_feed("A1", route_id="MD-W", direction_id=EVENING_DIRECTION_ID)))
+
+    events = evaluate(previous, latest, resolved, settings, now)
+    kept = apply_direction_filter(events, now, settings, "commute")
+    assert kept == events
+
+
+def test_direction_filter_drops_mismatched_morning_alert_during_evening():
+    from app.core.trip_resolver import MORNING_DIRECTION_ID
+
+    settings = _settings()
+    resolved = _resolved()
+    now = _now_at(20, 0)
+
+    previous = _snapshot(alerts=_parse_alerts(gtfs_realtime_pb2.FeedMessage()))
+    latest = _snapshot(alerts=_parse_alerts(_alert_feed("A1", route_id="MD-W", direction_id=MORNING_DIRECTION_ID)))
+
+    events = evaluate(previous, latest, resolved, settings, now)
+    assert apply_direction_filter(events, now, settings, "commute") == []
+
+
+def test_direction_filter_keeps_direction_less_alert():
+    settings = _settings()
+    resolved = _resolved()
+    now = _now_at(7, 0)
+
+    previous = _snapshot(alerts=_parse_alerts(gtfs_realtime_pb2.FeedMessage()))
+    latest = _snapshot(alerts=_parse_alerts(_alert_feed("A1", route_id="MD-W")))
+
+    events = evaluate(previous, latest, resolved, settings, now)
+    kept = apply_direction_filter(events, now, settings, "commute")
+    assert kept == events
+
+
+def test_direction_filter_passthrough_in_all_mode():
+    from app.core.trip_resolver import EVENING_DIRECTION_ID
+
+    settings = _settings()
+    resolved = _resolved()
+    now = _now_at(7, 0)  # morning, but mismatched direction
+
+    previous = _snapshot(alerts=_parse_alerts(gtfs_realtime_pb2.FeedMessage()))
+    latest = _snapshot(alerts=_parse_alerts(_alert_feed("A1", route_id="MD-W", direction_id=EVENING_DIRECTION_ID)))
+
+    events = evaluate(previous, latest, resolved, settings, now)
+    kept = apply_direction_filter(events, now, settings, "all")
+    assert kept == events
 
 
 def test_cleared_alert_off_by_default():

@@ -26,6 +26,7 @@ from datetime import datetime, time, timedelta
 from app.config import Settings
 from app.core.delay import delay_band, stop_delay
 from app.core.models import NoService, ResolvedTrip
+from app.core.trip_resolver import EVENING_DIRECTION_ID, MORNING_DIRECTION_ID
 from app.ingest.gtfs_time import gtfs_time_to_datetime
 from app.realtime.state_store import Snapshot
 
@@ -39,6 +40,7 @@ class AlertEvent:
     fingerprint: str
     message: str
     exempt_from_quiet_hours: bool = False
+    direction_id: int | None = None
 
 
 def _fingerprint(*parts: str) -> str:
@@ -125,6 +127,14 @@ def _my_trip_events(
     return events
 
 
+def _alert_direction(alert) -> int | None:
+    """Collapse an alert's informed direction(s) to a single value, or None if
+    unspecified/ambiguous -- can't tell, so callers should not filter it out."""
+    if len(alert.informed_direction_ids) == 1:
+        return next(iter(alert.informed_direction_ids))
+    return None
+
+
 def _service_alert_events(previous: Snapshot, latest: Snapshot, settings: Settings) -> list[AlertEvent]:
     events: list[AlertEvent] = []
     prev_relevant = {aid: a for aid, a in previous.alerts.items() if _is_relevant_alert(a, settings)}
@@ -133,7 +143,11 @@ def _service_alert_events(previous: Snapshot, latest: Snapshot, settings: Settin
     for aid, alert in latest_relevant.items():
         if aid not in prev_relevant:
             events.append(
-                AlertEvent(_fingerprint("alert_new", aid), f"📢 New alert: {alert.header_text or alert.description_text}")
+                AlertEvent(
+                    _fingerprint("alert_new", aid),
+                    f"📢 New alert: {alert.header_text or alert.description_text}",
+                    direction_id=_alert_direction(alert),
+                )
             )
     if settings.ALERT_CLEARED_PUSH:
         for aid, alert in prev_relevant.items():
@@ -195,3 +209,28 @@ def apply_notification_mode(
     if mode != "commute":
         return events
     return events if in_commute_window(now, settings) else []
+
+
+def _expected_direction(now: datetime, settings: Settings) -> int | None:
+    t = now.time()
+    if t < _parse_hhmm(settings.COMMUTE_MORNING_END):
+        return MORNING_DIRECTION_ID
+    if t >= _parse_hhmm(settings.COMMUTE_EVENING_START):
+        return EVENING_DIRECTION_ID
+    return None
+
+
+def apply_direction_filter(
+    events: list[AlertEvent], now: datetime, settings: Settings, mode: str
+) -> list[AlertEvent]:
+    """Only meaningful in commute mode -- 'all' mode watches every direction on
+    purpose. Drops alerts whose direction is known and doesn't match the
+    currently-active commute window; keeps direction-less alerts (can't tell,
+    so don't risk suppressing a real one).
+    """
+    if mode != "commute":
+        return events
+    expected = _expected_direction(now, settings)
+    if expected is None:
+        return events
+    return [e for e in events if e.direction_id is None or e.direction_id == expected]

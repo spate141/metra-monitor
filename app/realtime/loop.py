@@ -17,7 +17,7 @@ import asyncio
 import logging
 from datetime import datetime, time, timedelta, timezone
 
-from app.alerts.engine import apply_notification_mode, apply_quiet_hours, evaluate, in_watch_window
+from app.alerts.engine import apply_direction_filter, apply_notification_mode, apply_quiet_hours, evaluate, in_watch_window
 from app.config import Settings
 from app.core.delay import stop_delay
 from app.core.models import NoService
@@ -75,7 +75,9 @@ async def _dispatch_events(application, settings: Settings, events, now: datetim
         paused_until = get_paused_until(conn)
         if paused_until and now.date().isoformat() <= paused_until:
             return
-        events = apply_notification_mode(events, now, settings, get_notification_mode(conn))
+        mode = get_notification_mode(conn)
+        events = apply_notification_mode(events, now, settings, mode)
+        events = apply_direction_filter(events, now, settings, mode)
         if not events:
             return
         for event in events:
