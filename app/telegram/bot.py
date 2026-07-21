@@ -220,4 +220,8 @@ async def push_message(application: Application, settings: Settings, text: str) 
     if not settings.TELEGRAM_CHAT_ID:
         logger.warning("no TELEGRAM_CHAT_ID configured -- cannot push message")
         return
-    await application.bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=text)
+    try:
+        await application.bot.send_message(chat_id=settings.TELEGRAM_CHAT_ID, text=text)
+    except Exception:
+        logger.exception("failed to push telegram message: %r", text[:200])
+        raise

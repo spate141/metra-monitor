@@ -27,6 +27,7 @@ from app.briefings.builder import build_evening_briefing, build_morning_briefing
 from app.config import Settings, settings
 from app.db import briefing_already_sent, connect, get_paused_until, mark_briefing_sent
 from app.ingest.static_ingestor import ingest
+from app.realtime import loop as realtime_loop
 from app.realtime.loop import run_loop
 from app.realtime.poller import poll_once
 from app.realtime.state_store import StateStore
@@ -42,6 +43,17 @@ state_store = StateStore()
 def _parse_hhmm(raw: str) -> tuple[int, int]:
     h, m = raw.split(":")
     return int(h), int(m)
+
+
+async def _send_briefing_logged(application, settings: Settings, slot: str, delayed_tag: bool = False) -> None:
+    """Wraps send_briefing with logging -- this is invoked as a fire-and-forget
+    asyncio task from the scheduler, so without this any exception (e.g. a failed
+    Telegram push) would otherwise vanish silently instead of showing up in logs.
+    """
+    try:
+        await send_briefing(application, settings, slot, delayed_tag=delayed_tag)
+    except Exception:
+        logger.exception("%s briefing failed to send", slot)
 
 
 async def send_briefing(application, settings: Settings, slot: str, delayed_tag: bool = False) -> None:
@@ -74,7 +86,7 @@ async def _cold_start_grace(application, settings: Settings) -> None:
         scheduled = now.replace(hour=h, minute=m, second=0, microsecond=0)
         if scheduled <= now <= scheduled + GRACE_WINDOW:
             logger.info("cold-start grace window active for %s briefing -- sending late", slot)
-            await send_briefing(application, settings, slot, delayed_tag=True)
+            await _send_briefing_logged(application, settings, slot, delayed_tag=True)
 
 
 def _periodic_ingest() -> None:
@@ -105,12 +117,12 @@ async def lifespan(app: FastAPI):
         m_h, m_m = _parse_hhmm(settings.MORNING_BRIEFING)
         e_h, e_m = _parse_hhmm(settings.EVENING_BRIEFING)
         scheduler.add_job(
-            lambda: asyncio.ensure_future(send_briefing(application, settings, "morning")),
+            lambda: asyncio.ensure_future(_send_briefing_logged(application, settings, "morning")),
             CronTrigger(day_of_week="mon-fri", hour=m_h, minute=m_m, timezone=settings.tzinfo),
             id="morning_briefing",
         )
         scheduler.add_job(
-            lambda: asyncio.ensure_future(send_briefing(application, settings, "evening")),
+            lambda: asyncio.ensure_future(_send_briefing_logged(application, settings, "evening")),
             CronTrigger(day_of_week="mon-fri", hour=e_h, minute=e_m, timezone=settings.tzinfo),
             id="evening_briefing",
         )
@@ -152,12 +164,16 @@ def health():
     poller_fresh_sec = None
     if state_store.latest is not None:
         poller_fresh_sec = round((datetime.now(timezone.utc) - state_store.latest.fetched_at).total_seconds(), 1)
+    alert_loop_tick_sec = None
+    if realtime_loop.last_tick_at is not None:
+        alert_loop_tick_sec = round((datetime.now(timezone.utc) - realtime_loop.last_tick_at).total_seconds(), 1)
     return {
         "status": "ok",
         "db_age_sec": db_age_sec,
         "poller_last_fetch_sec_ago": poller_fresh_sec,
         "has_realtime": settings.has_realtime,
         "has_telegram": bool(settings.TELEGRAM_BOT_TOKEN),
+        "alert_loop_last_tick_sec_ago": alert_loop_tick_sec,
     }
 
 

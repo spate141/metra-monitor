@@ -118,8 +118,18 @@ def _record_delay_history(settings: Settings, resolved: dict, snapshot: Snapshot
         conn.close()
 
 
+last_tick_at: datetime | None = None
+
+
 async def run_loop(settings: Settings, state_store: StateStore, application) -> None:
-    """Runs forever. Call as a background asyncio task from app.main."""
+    """Runs forever. Call as a background asyncio task from app.main.
+
+    Each iteration is isolated in a try/except: a single bad poll or a failed
+    Telegram push must not permanently kill this task for the rest of the
+    process's uptime (it previously did -- see the bug this was fixed for).
+    """
+    global last_tick_at
+
     if not settings.has_realtime:
         logger.info("no METRA_API_TOKEN configured -- realtime loop / alert engine disabled")
         return
@@ -128,38 +138,45 @@ async def run_loop(settings: Settings, state_store: StateStore, application) -> 
     stale_alerted_for: datetime | None = None
 
     while True:
-        now = datetime.now(settings.tzinfo)
-        service_date = now.date()
-        resolved = resolve_today(
-            settings.db_path, service_date, settings.MORNING_TRAIN, settings.EVENING_DEPART_CUS,
-            settings.HOME_STOP, settings.WORK_STOP,
-        )
-        watch = _any_watch_window_active(now, resolved, settings)
-        awake = _is_awake_hours(now)
+        last_tick_at = datetime.now(timezone.utc)
+        try:
+            now = datetime.now(settings.tzinfo)
+            service_date = now.date()
+            resolved = resolve_today(
+                settings.db_path, service_date, settings.MORNING_TRAIN, settings.EVENING_DEPART_CUS,
+                settings.HOME_STOP, settings.WORK_STOP,
+            )
+            watch = _any_watch_window_active(now, resolved, settings)
+            awake = _is_awake_hours(now)
 
-        if not watch and not awake:
-            stale_alerted_for = None
-            await asyncio.sleep(AWAKE_POLL_SECONDS)
-            continue
+            if not watch and not awake:
+                stale_alerted_for = None
+                await asyncio.sleep(AWAKE_POLL_SECONDS)
+                continue
 
-        snapshot = poll_once(settings)
-        previous = state_store.latest
-        state_store.update(snapshot)
-        _record_delay_history(settings, resolved, snapshot, now)
+            snapshot = poll_once(settings)
+            previous = state_store.latest
+            state_store.update(snapshot)
+            _record_delay_history(settings, resolved, snapshot, now)
 
-        if previous is not None:
-            events = evaluate(previous, snapshot, resolved, settings, now)
-            await _dispatch_events(application, settings, events, now)
+            if previous is not None:
+                events = evaluate(previous, snapshot, resolved, settings, now)
+                await _dispatch_events(application, settings, events, now)
 
-        if watch:
-            if not snapshot.trip_updates and not snapshot.positions:
-                empty_since = empty_since or now
-                if now - empty_since > STALE_THRESHOLD and stale_alerted_for != service_date:
-                    await push_message(application, settings, "⚠️ Metra realtime feed unreachable/stale.")
-                    stale_alerted_for = service_date
+            if watch:
+                if not snapshot.trip_updates and not snapshot.positions:
+                    empty_since = empty_since or now
+                    if now - empty_since > STALE_THRESHOLD and stale_alerted_for != service_date:
+                        await push_message(application, settings, "⚠️ Metra realtime feed unreachable/stale.")
+                        stale_alerted_for = service_date
+                else:
+                    empty_since = None
             else:
                 empty_since = None
-        else:
-            empty_since = None
 
-        await asyncio.sleep(WATCH_POLL_SECONDS if watch else AWAKE_POLL_SECONDS)
+            await asyncio.sleep(WATCH_POLL_SECONDS if watch else AWAKE_POLL_SECONDS)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("realtime loop iteration failed -- continuing")
+            await asyncio.sleep(WATCH_POLL_SECONDS)
