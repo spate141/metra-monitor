@@ -5,12 +5,23 @@ import { api, type Position, type TripDetail } from "./api";
 // Free vector tiles, no API key/billing (design §6: "avoid Mapbox billing").
 const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 
-const DELAY_COLORS: Record<string, string> = {
-  on_time: "#4e7f2f",
-  minor: "#eab308",
-  major: "#f87171",
-  annulled: "#f87171",
+// GTFS direction_id: Metra's static feed uses 0 = outbound (away from
+// Chicago), 1 = inbound (toward Chicago). Colors chosen to read clearly on
+// both the light and dark map styles.
+const DIRECTION_COLORS: Record<string, string> = {
+  "0": "#2f6fd6", // outbound
+  "1": "#e07b1f", // inbound
   unknown: "#8b949e",
+};
+
+// Delay severity is still surfaced, just via the chevron's outline instead of
+// its fill (which now encodes direction) -- keeps both dimensions visible.
+const DELAY_STROKE_COLORS: Record<string, string> = {
+  on_time: "#0008",
+  minor: "#eab308",
+  major: "#dc2626",
+  annulled: "#dc2626",
+  unknown: "#0008",
 };
 
 function delayBand(delaySec: number | null, isAnnulled: boolean): string {
@@ -22,10 +33,14 @@ function delayBand(delaySec: number | null, isAnnulled: boolean): string {
   return "major";
 }
 
-function chevronSvg(color: string, bearing: number | null): string {
+function directionColor(directionId: number | null): string {
+  return DIRECTION_COLORS[String(directionId)] ?? DIRECTION_COLORS.unknown;
+}
+
+function chevronSvg(fill: string, stroke: string, bearing: number | null): string {
   const rotation = bearing ?? 0;
   return `<svg width="16" height="16" viewBox="0 0 16 16" style="transform: rotate(${rotation}deg)">
-    <polygon points="8,1 14,14 8,10 2,14" fill="${color}" stroke="#0008" stroke-width="0.5"/>
+    <polygon points="8,1 14,14 8,10 2,14" fill="${fill}" stroke="${stroke}" stroke-width="1.25"/>
   </svg>`;
 }
 
@@ -141,7 +156,8 @@ export function updatePositions(positions: Position[]): void {
     seen.add(pos.trip_id);
 
     const band = delayBand(pos.delay_sec, false);
-    const color = DELAY_COLORS[band];
+    const fill = directionColor(pos.direction_id);
+    const stroke = DELAY_STROKE_COLORS[band];
 
     let marker = markers.get(pos.trip_id);
     if (!marker) {
@@ -157,7 +173,7 @@ export function updatePositions(positions: Position[]): void {
     }
 
     const el = marker.getElement();
-    el.innerHTML = chevronSvg(color, pos.bearing);
+    el.innerHTML = chevronSvg(fill, stroke, pos.bearing);
     el.className = `train-marker${pos.is_my_train ? " my-train" : ""}${pos.stale ? " stale" : ""}`;
     el.title = `#${pos.train_no ?? "?"} · ${pos.delay_sec != null ? `${Math.round(pos.delay_sec / 60)} min` : "no live data"}`;
   }

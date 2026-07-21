@@ -82,7 +82,10 @@ def get_positions():
 
     conn = connect(settings.db_path)
     try:
-        train_no_by_trip = {r["trip_id"]: r["trip_short_name"] for r in conn.execute("SELECT trip_id, trip_short_name FROM trips")}
+        trips_by_id = {
+            r["trip_id"]: (r["trip_short_name"], r["direction_id"])
+            for r in conn.execute("SELECT trip_id, trip_short_name, direction_id FROM trips")
+        }
     finally:
         conn.close()
 
@@ -91,35 +94,39 @@ def get_positions():
     out = []
     seen: set[str] = set()
     for trip_id, pos in snapshot.positions.items():
-        if trip_id not in train_no_by_trip:
+        if trip_id not in trips_by_id:
             continue
         seen.add(trip_id)
         entry = snapshot.trip_updates.get(trip_id)
+        train_no, direction_id = trips_by_id[trip_id]
         out.append({
             "trip_id": trip_id,
-            "train_no": train_no_by_trip.get(trip_id),
+            "train_no": train_no,
             "lat": pos.lat,
             "lon": pos.lon,
             "bearing": pos.bearing,
             "delay_sec": entry.delay_sec if entry else None,
             "next_stop": pos.current_stop_id,
             "is_my_train": trip_id in my_trip_ids,
+            "direction_id": direction_id,
             "stale": False,
         })
     # Constraint C7: a trip_update with no matching vehicle position means the
     # train lost GPS (underground/terminal) -- assume in route, flag as a ghost
     # rather than omitting it. (Interpolated coordinates are a dashboard concern.)
     for trip_id, entry in snapshot.trip_updates.items():
-        if trip_id not in train_no_by_trip or trip_id in seen or entry.is_annulled:
+        if trip_id not in trips_by_id or trip_id in seen or entry.is_annulled:
             continue
+        train_no, direction_id = trips_by_id[trip_id]
         out.append({
             "trip_id": trip_id,
-            "train_no": train_no_by_trip.get(trip_id),
+            "train_no": train_no,
             "lat": None,
             "lon": None,
             "bearing": None,
             "delay_sec": entry.delay_sec,
             "next_stop": None,
+            "direction_id": direction_id,
             "is_my_train": trip_id in my_trip_ids,
             "stale": True,
         })
