@@ -5,12 +5,23 @@ import { api, type Position, type TripDetail } from "./api";
 // Free vector tiles, no API key/billing (design §6: "avoid Mapbox billing").
 const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 
-const DELAY_COLORS: Record<string, string> = {
-  on_time: "#4e7f2f",
-  minor: "#eab308",
-  major: "#f87171",
-  annulled: "#f87171",
+// GTFS direction_id: Metra's static feed uses 0 = outbound (away from
+// Chicago), 1 = inbound (toward Chicago). Colors chosen to read clearly on
+// both the light and dark map styles.
+const DIRECTION_COLORS: Record<string, string> = {
+  "0": "#2f6fd6", // outbound
+  "1": "#e07b1f", // inbound
   unknown: "#8b949e",
+};
+
+// Delay severity is still surfaced, just via the chevron's outline instead of
+// its fill (which now encodes direction) -- keeps both dimensions visible.
+const DELAY_STROKE_COLORS: Record<string, string> = {
+  on_time: "#0008",
+  minor: "#eab308",
+  major: "#dc2626",
+  annulled: "#dc2626",
+  unknown: "#0008",
 };
 
 function delayBand(delaySec: number | null, isAnnulled: boolean): string {
@@ -22,11 +33,66 @@ function delayBand(delaySec: number | null, isAnnulled: boolean): string {
   return "major";
 }
 
-function chevronSvg(color: string, bearing: number | null): string {
+function directionColor(directionId: number | null): string {
+  return DIRECTION_COLORS[String(directionId)] ?? DIRECTION_COLORS.unknown;
+}
+
+function chevronSvg(fill: string, stroke: string, bearing: number | null): string {
   const rotation = bearing ?? 0;
   return `<svg width="16" height="16" viewBox="0 0 16 16" style="transform: rotate(${rotation}deg)">
-    <polygon points="8,1 14,14 8,10 2,14" fill="${color}" stroke="#0008" stroke-width="0.5"/>
+    <polygon points="8,1 14,14 8,10 2,14" fill="${fill}" stroke="${stroke}" stroke-width="1.25"/>
   </svg>`;
+}
+
+// Onboard GPS is noisy enough that raw fixes render visibly off the rail --
+// snap each position onto the nearest point of the route geometry before
+// placing its marker. Distances only need to be compared, not measured
+// precisely, so a flat-earth projection scaled by the corridor's reference
+// latitude is accurate enough at this extent.
+const REF_LAT_RAD = (41.95 * Math.PI) / 180;
+const M_PER_DEG_LAT = 111320;
+const M_PER_DEG_LON = 111320 * Math.cos(REF_LAT_RAD);
+const MAX_SNAP_DIST_M = 500; // beyond this, trust the raw fix over the route (e.g. yards, detours)
+
+type Point = [number, number];
+
+let routeLines: Point[][] = [];
+
+function toXY([lon, lat]: Point): Point {
+  return [lon * M_PER_DEG_LON, lat * M_PER_DEG_LAT];
+}
+
+function toLonLat([x, y]: Point): Point {
+  return [x / M_PER_DEG_LON, y / M_PER_DEG_LAT];
+}
+
+function nearestPointOnSegment(p: Point, a: Point, b: Point): { point: Point; distSq: number } {
+  const [px, py] = p;
+  const [ax, ay] = a;
+  const [bx, by] = b;
+  const abx = bx - ax;
+  const aby = by - ay;
+  const lenSq = abx * abx + aby * aby;
+  const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * abx + (py - ay) * aby) / lenSq));
+  const x = ax + t * abx;
+  const y = ay + t * aby;
+  const dx = px - x;
+  const dy = py - y;
+  return { point: [x, y], distSq: dx * dx + dy * dy };
+}
+
+function snapToRoute(lon: number, lat: number): Point {
+  if (routeLines.length === 0) return [lon, lat];
+  const p = toXY([lon, lat]);
+  let best: { point: Point; distSq: number } | null = null;
+  for (const line of routeLines) {
+    for (let i = 0; i < line.length - 1; i++) {
+      const candidate = nearestPointOnSegment(p, toXY(line[i]), toXY(line[i + 1]));
+      if (!best || candidate.distSq < best.distSq) best = candidate;
+    }
+  }
+  if (!best || Math.sqrt(best.distSq) > MAX_SNAP_DIST_M) return [lon, lat];
+  return toLonLat(best.point);
 }
 
 let map: MLMap;
@@ -88,6 +154,10 @@ export async function initMap(): Promise<MLMap> {
     const geometry = await api.geometry();
     if (geometry.route_color) lineColor = geometry.route_color;
 
+    routeLines = geometry.line.features
+      .map((f) => (f.geometry.type === "LineString" ? (f.geometry.coordinates as Point[]) : null))
+      .filter((coords): coords is Point[] => coords != null);
+
     map.addSource("md-w-line", { type: "geojson", data: geometry.line });
     map.addLayer({
       id: "md-w-line",
@@ -141,7 +211,9 @@ export function updatePositions(positions: Position[]): void {
     seen.add(pos.trip_id);
 
     const band = delayBand(pos.delay_sec, false);
-    const color = DELAY_COLORS[band];
+    const fill = directionColor(pos.direction_id);
+    const stroke = DELAY_STROKE_COLORS[band];
+    const snapped = snapToRoute(pos.lon, pos.lat);
 
     let marker = markers.get(pos.trip_id);
     if (!marker) {
@@ -150,14 +222,14 @@ export function updatePositions(positions: Position[]): void {
         e.stopPropagation();
         if (pos.train_no && onTrainClick) onTrainClick(pos.train_no);
       });
-      marker = new maplibregl.Marker({ element: el }).setLngLat([pos.lon, pos.lat]).addTo(map);
+      marker = new maplibregl.Marker({ element: el }).setLngLat(snapped).addTo(map);
       markers.set(pos.trip_id, marker);
     } else {
-      marker.setLngLat([pos.lon, pos.lat]);
+      marker.setLngLat(snapped);
     }
 
     const el = marker.getElement();
-    el.innerHTML = chevronSvg(color, pos.bearing);
+    el.innerHTML = chevronSvg(fill, stroke, pos.bearing);
     el.className = `train-marker${pos.is_my_train ? " my-train" : ""}${pos.stale ? " stale" : ""}`;
     el.title = `#${pos.train_no ?? "?"} · ${pos.delay_sec != null ? `${Math.round(pos.delay_sec / 60)} min` : "no live data"}`;
   }

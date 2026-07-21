@@ -31,6 +31,7 @@ export interface Position {
   delay_sec: number | null;
   next_stop: string | null;
   is_my_train: boolean;
+  direction_id: number | null;
   stale: boolean;
 }
 
