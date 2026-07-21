@@ -105,13 +105,15 @@ async def lifespan(app: FastAPI):
         m_h, m_m = _parse_hhmm(settings.MORNING_BRIEFING)
         e_h, e_m = _parse_hhmm(settings.EVENING_BRIEFING)
         scheduler.add_job(
-            lambda: asyncio.ensure_future(send_briefing(application, settings, "morning")),
+            send_briefing,
             CronTrigger(day_of_week="mon-fri", hour=m_h, minute=m_m, timezone=settings.tzinfo),
+            args=[application, settings, "morning"],
             id="morning_briefing",
         )
         scheduler.add_job(
-            lambda: asyncio.ensure_future(send_briefing(application, settings, "evening")),
+            send_briefing,
             CronTrigger(day_of_week="mon-fri", hour=e_h, minute=e_m, timezone=settings.tzinfo),
+            args=[application, settings, "evening"],
             id="evening_briefing",
         )
         await _cold_start_grace(application, settings)

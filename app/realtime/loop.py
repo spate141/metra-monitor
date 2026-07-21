@@ -142,24 +142,31 @@ async def run_loop(settings: Settings, state_store: StateStore, application) -> 
             await asyncio.sleep(AWAKE_POLL_SECONDS)
             continue
 
-        snapshot = poll_once(settings)
-        previous = state_store.latest
-        state_store.update(snapshot)
-        _record_delay_history(settings, resolved, snapshot, now)
+        try:
+            snapshot = poll_once(settings)
+            previous = state_store.latest
+            state_store.update(snapshot)
+            _record_delay_history(settings, resolved, snapshot, now)
 
-        if previous is not None:
-            events = evaluate(previous, snapshot, resolved, settings, now)
-            await _dispatch_events(application, settings, events, now)
+            if previous is not None:
+                events = evaluate(previous, snapshot, resolved, settings, now)
+                await _dispatch_events(application, settings, events, now)
 
-        if watch:
-            if not snapshot.trip_updates and not snapshot.positions:
-                empty_since = empty_since or now
-                if now - empty_since > STALE_THRESHOLD and stale_alerted_for != service_date:
-                    await push_message(application, settings, "⚠️ Metra realtime feed unreachable/stale.")
-                    stale_alerted_for = service_date
+            if watch:
+                if not snapshot.trip_updates and not snapshot.positions:
+                    empty_since = empty_since or now
+                    if now - empty_since > STALE_THRESHOLD and stale_alerted_for != service_date:
+                        await push_message(application, settings, "⚠️ Metra realtime feed unreachable/stale.")
+                        stale_alerted_for = service_date
+                else:
+                    empty_since = None
             else:
                 empty_since = None
-        else:
-            empty_since = None
+        except Exception:
+            # A transient network/API failure must not permanently kill this
+            # background task -- there's no supervisor to restart it, so an
+            # uncaught exception here silently stops all delay alerts until
+            # the process is restarted.
+            logger.exception("realtime poll iteration failed -- will retry next cycle")
 
         await asyncio.sleep(WATCH_POLL_SECONDS if watch else AWAKE_POLL_SECONDS)
