@@ -135,6 +135,17 @@ def _alert_direction(alert) -> int | None:
     return None
 
 
+def _format_alert_text(alert) -> str:
+    """Combine header + description so Telegram shows the full announcement,
+    not just the headline -- header and description are often distinct
+    (header is a short summary, description has the actual details)."""
+    header = alert.header_text.strip()
+    description = alert.description_text.strip()
+    if header and description and header != description:
+        return f"{header}\n{description}"
+    return header or description
+
+
 def _service_alert_events(previous: Snapshot, latest: Snapshot, settings: Settings) -> list[AlertEvent]:
     events: list[AlertEvent] = []
     prev_relevant = {aid: a for aid, a in previous.alerts.items() if _is_relevant_alert(a, settings)}
@@ -145,7 +156,7 @@ def _service_alert_events(previous: Snapshot, latest: Snapshot, settings: Settin
             events.append(
                 AlertEvent(
                     _fingerprint("alert_new", aid),
-                    f"📢 New alert: {alert.header_text or alert.description_text}",
+                    f"📢 New alert: {_format_alert_text(alert)}",
                     direction_id=_alert_direction(alert),
                 )
             )
@@ -155,7 +166,7 @@ def _service_alert_events(previous: Snapshot, latest: Snapshot, settings: Settin
                 events.append(
                     AlertEvent(
                         _fingerprint("alert_cleared", aid),
-                        f"✅ Alert cleared: {alert.header_text or alert.description_text}",
+                        f"✅ Alert cleared: {_format_alert_text(alert)}",
                     )
                 )
     return events
