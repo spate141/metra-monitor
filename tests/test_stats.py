@@ -18,9 +18,13 @@ def _make_db(tmp_path):
 
 
 def _insert(conn, train_no, ts, delay_sec):
+    service_date = datetime.fromisoformat(ts).astimezone(TZ).date().isoformat()
     conn.execute(
-        "INSERT INTO delay_history (ts, trip_id, train_no, stop_id, delay_sec, source) VALUES (?, ?, ?, ?, ?, ?)",
-        (ts, f"trip-{train_no}", train_no, "ROSELLE", delay_sec, "test"),
+        "INSERT INTO delay_history (service_date, trip_id, stop_id, ts, train_no, delay_sec, source) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(service_date, trip_id, stop_id) DO UPDATE SET "
+        "ts=excluded.ts, delay_sec=excluded.delay_sec",
+        (service_date, f"trip-{train_no}", "ROSELLE", ts, train_no, delay_sec, "test"),
     )
     conn.commit()
 
@@ -34,7 +38,7 @@ def test_compute_stats_basic(tmp_path):
     conn = _make_db(tmp_path)
     now = datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc)  # a Monday
     _insert(conn, "2222", now.isoformat(), 60)
-    _insert(conn, "2222", (now - timedelta(days=1)).isoformat(), 600)  # major delay, Sunday
+    _insert(conn, "2222", (now - timedelta(days=1)).isoformat(), 900)  # 15 min late, Sunday
     _insert(conn, "2222", (now - timedelta(days=40)).isoformat(), 9999)  # outside 30-day window
 
     stats = compute_stats(conn, TZ, now=now)
@@ -42,7 +46,19 @@ def test_compute_stats_basic(tmp_path):
     s = stats["2222"]
     assert s["n_observations"] == 2
     assert s["on_time_pct"] == 50.0
-    assert s["avg_delay_sec"] == 330.0
+    assert s["avg_delay_sec"] == 480.0
+
+
+def test_on_time_threshold_is_ten_minutes(tmp_path):
+    """Exactly 10 min still counts as on time; a second past it does not."""
+    conn = _make_db(tmp_path)
+    now = datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc)
+    _insert(conn, "on-the-line", now.isoformat(), 600)
+    _insert(conn, "just-over", now.isoformat(), 601)
+
+    stats = compute_stats(conn, TZ, now=now)
+    assert stats["on-the-line"]["on_time_pct"] == 100.0
+    assert stats["just-over"]["on_time_pct"] == 0.0
 
 
 def _test_settings():

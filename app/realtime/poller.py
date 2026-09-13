@@ -18,17 +18,27 @@ a scheduled trip: assume on schedule."
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 from google.transit import gtfs_realtime_pb2
 
 from app.config import Settings
+from app.db import connect
+from app.ingest.gtfs_time import gtfs_time_to_datetime
 from app.realtime.state_store import AlertEntry, Snapshot, TripUpdateEntry, VehiclePositionEntry
 
 logger = logging.getLogger(__name__)
 
 FEEDS = ("tripupdates", "positions", "alerts")
+
+# SQLite's default host-parameter ceiling is 999; stay well under it when
+# fanning trip_ids into an IN (...) clause.
+_SQL_CHUNK = 500
+
+ScheduleLookup = dict[tuple[str, str], tuple[str | None, str | None]]
 
 
 def _fetch_feed(settings: Settings, client: httpx.Client, feed: str) -> gtfs_realtime_pb2.FeedMessage:
@@ -40,7 +50,65 @@ def _fetch_feed(settings: Settings, client: httpx.Client, feed: str) -> gtfs_rea
     return msg
 
 
-def _parse_trip_updates(msg: gtfs_realtime_pb2.FeedMessage) -> dict[str, TripUpdateEntry]:
+def scheduled_stop_times(db_path: Path, trip_ids: set[str]) -> ScheduleLookup:
+    """{(trip_id, stop_id): (arrival_time, departure_time)} in raw GTFS HH:MM:SS.
+
+    Metra's feed reports predicted absolute times, never a `delay`, so the static
+    schedule is the only way to turn a prediction into "how late is it".
+    """
+    if not trip_ids:
+        return {}
+    out: ScheduleLookup = {}
+    conn = connect(db_path)
+    try:
+        ids = list(trip_ids)
+        for i in range(0, len(ids), _SQL_CHUNK):
+            chunk = ids[i : i + _SQL_CHUNK]
+            placeholders = ",".join("?" * len(chunk))
+            rows = conn.execute(
+                f"SELECT trip_id, stop_id, arrival_time, departure_time FROM stop_times "
+                f"WHERE trip_id IN ({placeholders})",
+                chunk,
+            )
+            for r in rows:
+                out[(r["trip_id"], r["stop_id"])] = (r["arrival_time"], r["departure_time"])
+    finally:
+        conn.close()
+    return out
+
+
+def _trip_service_date(tu, tz: ZoneInfo) -> date:
+    raw = tu.trip.start_date
+    if raw:
+        try:
+            return datetime.strptime(raw, "%Y%m%d").date()
+        except ValueError:
+            logger.warning("unparseable trip.start_date %r -- falling back to today", raw)
+    return datetime.now(tz).date()
+
+
+def _event_delay(event, scheduled_raw: str | None, service_date: date, tz: ZoneInfo | None) -> int | None:
+    """Seconds late for one StopTimeEvent, or None when it can't be determined.
+
+    `HasField("delay")` must be checked on the event itself, not on its parent
+    StopTimeUpdate: Metra sends `arrival { time: ... }` with no delay, and reading
+    `.delay` off that present-but-delayless message yields protobuf's default 0 --
+    i.e. a confident, fabricated "exactly on time" for every stop.
+    """
+    if event.HasField("delay"):
+        return event.delay
+    if event.HasField("time") and scheduled_raw and tz is not None:
+        scheduled = gtfs_time_to_datetime(service_date, scheduled_raw, tz)
+        return int(event.time - scheduled.timestamp())
+    return None
+
+
+def _parse_trip_updates(
+    msg: gtfs_realtime_pb2.FeedMessage,
+    scheduled: ScheduleLookup | None = None,
+    tz: ZoneInfo | None = None,
+) -> dict[str, TripUpdateEntry]:
+    scheduled = scheduled or {}
     out: dict[str, TripUpdateEntry] = {}
     for entity in msg.entity:
         if not entity.HasField("trip_update"):
@@ -48,14 +116,20 @@ def _parse_trip_updates(msg: gtfs_realtime_pb2.FeedMessage) -> dict[str, TripUpd
         tu = entity.trip_update
         trip_id = tu.trip.trip_id
         is_annulled = tu.trip.schedule_relationship == gtfs_realtime_pb2.TripDescriptor.CANCELED
+        service_date = _trip_service_date(tu, tz) if tz is not None else date.today()
 
         stop_time_updates = []
         overall_delay = tu.delay if tu.HasField("delay") else None
         for stu in tu.stop_time_update:
+            sched_arr, sched_dep = scheduled.get((trip_id, stu.stop_id), (None, None))
             entry = {
                 "stop_id": stu.stop_id,
-                "arrival_delay": stu.arrival.delay if stu.HasField("arrival") else None,
-                "departure_delay": stu.departure.delay if stu.HasField("departure") else None,
+                "arrival_delay": (
+                    _event_delay(stu.arrival, sched_arr, service_date, tz) if stu.HasField("arrival") else None
+                ),
+                "departure_delay": (
+                    _event_delay(stu.departure, sched_dep, service_date, tz) if stu.HasField("departure") else None
+                ),
             }
             stop_time_updates.append(entry)
             if overall_delay is None:
@@ -140,9 +214,12 @@ def poll_once(settings: Settings) -> Snapshot:
             logger.warning("realtime poll failed: %s", exc)
             return Snapshot(fetched_at=now)
 
+    trip_ids = {e.trip_update.trip.trip_id for e in tu_msg.entity if e.HasField("trip_update")}
+    scheduled = scheduled_stop_times(settings.db_path, trip_ids)
+
     return Snapshot(
         fetched_at=now,
-        trip_updates=_parse_trip_updates(tu_msg),
+        trip_updates=_parse_trip_updates(tu_msg, scheduled, settings.tzinfo),
         positions=_parse_positions(pos_msg),
         alerts=_parse_alerts(alert_msg),
     )

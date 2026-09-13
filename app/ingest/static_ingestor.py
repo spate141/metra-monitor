@@ -199,7 +199,12 @@ def _copy_operational_state(old_db_path: Path, new_conn: sqlite3.Connection) -> 
     new_conn.execute("ATTACH DATABASE ? AS old_db", (str(old_db_path),))
     try:
         new_conn.execute("INSERT INTO meta SELECT * FROM old_db.meta")
-        new_conn.execute("INSERT INTO delay_history SELECT * FROM old_db.delay_history")
+        # Columns named explicitly: a positional SELECT * would silently misfile
+        # every value if the two schemas' column order ever drifts.
+        new_conn.execute(
+            "INSERT INTO delay_history (service_date, trip_id, stop_id, ts, train_no, delay_sec, source) "
+            "SELECT service_date, trip_id, stop_id, ts, train_no, delay_sec, source FROM old_db.delay_history"
+        )
         new_conn.execute("INSERT INTO alert_fingerprints SELECT * FROM old_db.alert_fingerprints")
         new_conn.commit()
     finally:

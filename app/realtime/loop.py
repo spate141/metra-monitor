@@ -19,7 +19,7 @@ from datetime import datetime, time, timedelta, timezone
 
 from app.alerts.engine import apply_direction_filter, apply_notification_mode, apply_quiet_hours, apply_weekday_filter, evaluate, in_watch_window
 from app.config import Settings
-from app.core.delay import stop_delay
+from app.core.delay import explicit_stop_delay
 from app.core.models import NoService
 from app.core.trip_resolver import resolve_today
 from app.db import (
@@ -93,9 +93,14 @@ async def _dispatch_events(application, settings: Settings, events, now: datetim
 
 
 def _record_delay_history(settings: Settings, resolved: dict, snapshot: Snapshot, now: datetime) -> None:
-    """Append a delay observation per resolved trip (design §7 `delay_history`) --
-    feeds the `/api/v1/stats` on-time% aggregate. Skipped when there's no live delay
-    to record (never fabricate a value -- design edge case #4).
+    """Record one delay observation per resolved trip per service date (design §7
+    `delay_history`) -- feeds the `/api/v1/stats` on-time% aggregate. Skipped when
+    there's no live delay to record (never fabricate a value -- design edge case #4).
+
+    Each poll upserts that trip's single row rather than appending, so a train is
+    one data point in on-time% regardless of how many times we happened to poll it.
+    `explicit_stop_delay` keeps the last reading taken while our stop was still
+    ahead of the train -- the closest thing the feed gives us to its actual arrival.
     """
     watch_stop = _watch_stop_map(settings)
     rows = []
@@ -104,16 +109,29 @@ def _record_delay_history(settings: Settings, resolved: dict, snapshot: Snapshot
             continue
         stop_id = watch_stop[slot]
         entry = snapshot.trip_updates.get(result.trip_id)
-        delay_sec = stop_delay(entry, stop_id)
+        delay_sec = explicit_stop_delay(entry, stop_id)
         if delay_sec is None:
             continue
-        rows.append((datetime.now(timezone.utc).isoformat(), result.trip_id, result.train_no, stop_id, delay_sec, "realtime"))
+        rows.append(
+            (
+                result.service_date.isoformat(),
+                result.trip_id,
+                stop_id,
+                datetime.now(timezone.utc).isoformat(),
+                result.train_no,
+                delay_sec,
+                "realtime",
+            )
+        )
     if not rows:
         return
     conn = connect(settings.db_path)
     try:
         conn.executemany(
-            "INSERT INTO delay_history (ts, trip_id, train_no, stop_id, delay_sec, source) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO delay_history (service_date, trip_id, stop_id, ts, train_no, delay_sec, source) "
+            "VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(service_date, trip_id, stop_id) DO UPDATE SET "
+            "ts=excluded.ts, delay_sec=excluded.delay_sec, train_no=excluded.train_no, source=excluded.source",
             rows,
         )
         conn.commit()

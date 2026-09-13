@@ -81,13 +81,18 @@ CREATE TABLE IF NOT EXISTS resolved_trips (
     PRIMARY KEY (service_date, slot)
 );
 
+-- One row per trip per service date per stop (not per poll): on-time% is a
+-- per-trip statistic, so repeated polls of the same train upsert the same row
+-- rather than each casting a vote.
 CREATE TABLE IF NOT EXISTS delay_history (
-    ts TEXT NOT NULL,
+    service_date TEXT NOT NULL,
     trip_id TEXT NOT NULL,
+    stop_id TEXT NOT NULL,
+    ts TEXT NOT NULL,
     train_no TEXT,
-    stop_id TEXT,
     delay_sec INTEGER,
-    source TEXT
+    source TEXT,
+    PRIMARY KEY (service_date, trip_id, stop_id)
 );
 CREATE INDEX IF NOT EXISTS idx_delay_history_trip ON delay_history(trip_id, ts);
 
@@ -111,7 +116,21 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _drop_prefix_delay_history(conn: sqlite3.Connection) -> None:
+    """Drop a pre-`service_date` delay_history table so the new DDL can create it.
+
+    Every row that table holds is a fabricated zero: the poller used to read
+    `.delay` off a StopTimeEvent that never carried one, recording "0 sec late"
+    for every stop of every trip. There is nothing worth migrating, and keeping
+    the rows would pin on-time% at 100% for another 30 days.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(delay_history)")}
+    if cols and "service_date" not in cols:
+        conn.execute("DROP TABLE delay_history")
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
+    _drop_prefix_delay_history(conn)
     conn.executescript(SCHEMA)
     conn.commit()
 

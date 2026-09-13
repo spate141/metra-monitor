@@ -40,7 +40,21 @@ def delay_band(delay_sec: int | None, is_annulled: bool) -> str:
 def stop_delay(entry: TripUpdateEntry | None, stop_id: str) -> int | None:
     if entry is None:
         return None
+    delay = explicit_stop_delay(entry, stop_id)
+    return delay if delay is not None else entry.delay_sec
+
+
+def explicit_stop_delay(entry: TripUpdateEntry | None, stop_id: str) -> int | None:
+    """Delay for exactly this stop, or None when the feed no longer lists it.
+
+    Unlike `stop_delay`, never falls back to the trip-level delay -- that value
+    describes the next *upcoming* stop, so once a train passes our stop (the feed
+    drops passed stops) the fallback would silently attribute a different stop's
+    delay to ours. On-time history needs the strict reading.
+    """
+    if entry is None:
+        return None
     for stu in entry.stop_time_updates:
         if stu["stop_id"] == stop_id:
             return stu["departure_delay"] if stu["departure_delay"] is not None else stu["arrival_delay"]
-    return entry.delay_sec
+    return None

@@ -17,8 +17,9 @@ def test_copy_operational_state_preserves_meta_and_history(tmp_path):
     set_meta(old_conn, "notification_mode", "all")
     set_meta(old_conn, "paused_until", "2026-07-08")
     old_conn.execute(
-        "INSERT INTO delay_history (ts, trip_id, train_no, stop_id, delay_sec, source) VALUES (?,?,?,?,?,?)",
-        ("2026-07-08T12:00:00+00:00", "TRIP1", "2222", "ROSELLE", 120, "realtime"),
+        "INSERT INTO delay_history (service_date, trip_id, stop_id, ts, train_no, delay_sec, source) "
+        "VALUES (?,?,?,?,?,?,?)",
+        ("2026-07-08", "TRIP1", "ROSELLE", "2026-07-08T12:00:00+00:00", "2222", 120, "realtime"),
     )
     old_conn.execute(
         "INSERT INTO alert_fingerprints (fingerprint, first_seen, last_sent) VALUES (?,?,?)",

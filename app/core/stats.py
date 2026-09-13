@@ -7,7 +7,9 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-ON_TIME_THRESHOLD_SEC = 120
+# Anything over 10 minutes counts as late. Lines up with the delay-band glyphs
+# in core/delay.py, where 10+ min is the red "major" band.
+ON_TIME_THRESHOLD_SEC = 600
 STATS_WINDOW_DAYS = 30
 
 
