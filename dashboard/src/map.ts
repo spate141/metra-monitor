@@ -1,9 +1,15 @@
 import maplibregl, { Map as MLMap, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { api, type Position, type TripDetail } from "./api";
+import { api, type Geometry, type Position, type TripDetail } from "./api";
 
 // Free vector tiles, no API key/billing (design §6: "avoid Mapbox billing").
-const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
+// CARTO's Voyager/Dark Matter basemaps are static, keyless, and free to use --
+// swapped per theme so the map matches the app's light/dark toggle instead of
+// staying flat grayscale in both.
+const STYLE_URLS = {
+  light: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
+  dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+} as const;
 
 // GTFS direction_id: Metra's static feed uses 0 = outbound (away from
 // Chicago), 1 = inbound (toward Chicago). Colors chosen to read clearly on
@@ -99,6 +105,8 @@ let map: MLMap;
 const markers = new Map<string, Marker>();
 let onTrainClick: ((trainNo: string) => void) | null = null;
 let lineColor = "#c8102e"; // overwritten by setLineColor() once the feed's route_color loads
+let geometry: Geometry | null = null; // cached so a style swap can re-add layers without refetching
+let styleTheme: "light" | "dark" | null = null; // which base style is currently loaded
 
 export function setTrainClickHandler(fn: (trainNo: string) => void): void {
   onTrainClick = fn;
@@ -120,10 +128,23 @@ function isDark(): boolean {
 
 /** Applies theme-aware paint to the stops/labels layers -- fixes the old
  * hardcoded-dark halo that looked broken in light mode. Safe to call before
- * the layers exist (checked via getLayer). */
+ * the layers exist (checked via getLayer). Also swaps the base CARTO style
+ * (Voyager/Dark Matter) when the theme has actually flipped; setStyle()
+ * discards all our sources/layers, so addRouteLayers() re-adds them once the
+ * new style finishes loading. */
 export function applyMapTheme(): void {
-  if (!map || !map.getLayer("md-w-stops")) return;
+  if (!map) return;
   const dark = isDark();
+  const wanted = dark ? "dark" : "light";
+
+  if (styleTheme !== wanted) {
+    styleTheme = wanted;
+    map.once("style.load", () => addRouteLayers());
+    map.setStyle(STYLE_URLS[wanted]);
+    return; // addRouteLayers() re-applies theme paint once the new style is in
+  }
+
+  if (!map.getLayer("md-w-stops")) return;
   map.setPaintProperty("md-w-stops", "circle-color", dark ? "#0b0d10" : "#ffffff");
   map.setPaintProperty("md-w-stops", "circle-stroke-color", lineColor);
   map.setPaintProperty("md-w-stop-labels", "text-color", cssVar("--ink-muted") || (dark ? "#8b95a1" : "#5b6570"));
@@ -139,10 +160,58 @@ export function setLineColor(color: string): void {
   map.setPaintProperty("md-w-stops", "circle-stroke-color", lineColor);
 }
 
+/** (Re-)adds the route line / stops / labels layers onto whatever style is
+ * currently loaded. Needed both on first load and after setStyle() swaps the
+ * base map out from under us (setStyle discards all sources/layers). */
+function addRouteLayers(): void {
+  if (!geometry) return;
+
+  map.addSource("md-w-line", { type: "geojson", data: geometry.line });
+  map.addLayer({
+    id: "md-w-line",
+    type: "line",
+    source: "md-w-line",
+    paint: { "line-color": lineColor, "line-width": 4, "line-opacity": 1 },
+  });
+
+  map.addSource("md-w-stops", { type: "geojson", data: geometry.stops });
+  map.addLayer({
+    id: "md-w-stops",
+    type: "circle",
+    source: "md-w-stops",
+    paint: {
+      "circle-radius": 4,
+      "circle-color": isDark() ? "#0b0d10" : "#ffffff",
+      "circle-stroke-width": 1.5,
+      "circle-stroke-color": lineColor,
+    },
+  });
+  map.addLayer({
+    id: "md-w-stop-labels",
+    type: "symbol",
+    source: "md-w-stops",
+    layout: {
+      "text-field": ["get", "stop_name"],
+      "text-font": ["Noto Sans Regular"], // liberty style's glyphs only cover Noto Sans
+      "text-size": 10,
+      "text-offset": [0, 1],
+      "text-anchor": "top",
+    },
+    paint: {
+      "text-color": cssVar("--ink-muted"),
+      "text-halo-color": cssVar("--bg"),
+      "text-halo-width": 1,
+    },
+  });
+
+  applyMapTheme();
+}
+
 export async function initMap(): Promise<MLMap> {
+  styleTheme = isDark() ? "dark" : "light";
   map = new maplibregl.Map({
     container: "map",
-    style: STYLE_URL,
+    style: STYLE_URLS[styleTheme],
     center: [-88.05, 41.95], // roughly the MD-W corridor (Roselle <-> Chicago)
     zoom: 9.5,
   });
@@ -151,50 +220,14 @@ export async function initMap(): Promise<MLMap> {
   await new Promise<void>((resolve) => map.on("load", () => resolve()));
 
   try {
-    const geometry = await api.geometry();
+    geometry = await api.geometry();
     if (geometry.route_color) lineColor = geometry.route_color;
 
     routeLines = geometry.line.features
       .map((f) => (f.geometry.type === "LineString" ? (f.geometry.coordinates as Point[]) : null))
       .filter((coords): coords is Point[] => coords != null);
 
-    map.addSource("md-w-line", { type: "geojson", data: geometry.line });
-    map.addLayer({
-      id: "md-w-line",
-      type: "line",
-      source: "md-w-line",
-      paint: { "line-color": lineColor, "line-width": 4, "line-opacity": 1 },
-    });
-
-    map.addSource("md-w-stops", { type: "geojson", data: geometry.stops });
-    map.addLayer({
-      id: "md-w-stops",
-      type: "circle",
-      source: "md-w-stops",
-      paint: {
-        "circle-radius": 4,
-        "circle-color": isDark() ? "#0b0d10" : "#ffffff",
-        "circle-stroke-width": 1.5,
-        "circle-stroke-color": lineColor,
-      },
-    });
-    map.addLayer({
-      id: "md-w-stop-labels",
-      type: "symbol",
-      source: "md-w-stops",
-      layout: {
-        "text-field": ["get", "stop_name"],
-        "text-font": ["Noto Sans Regular"], // liberty style's glyphs only cover Noto Sans
-        "text-size": 10,
-        "text-offset": [0, 1],
-        "text-anchor": "top",
-      },
-      paint: {
-        "text-color": cssVar("--ink-muted"),
-        "text-halo-color": cssVar("--bg"),
-        "text-halo-width": 1,
-      },
-    });
+    addRouteLayers();
   } catch (err) {
     console.error("failed to load /api/v1/geometry", err);
   }

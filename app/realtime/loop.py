@@ -17,7 +17,7 @@ import asyncio
 import logging
 from datetime import datetime, time, timedelta, timezone
 
-from app.alerts.engine import apply_direction_filter, apply_notification_mode, apply_quiet_hours, evaluate, in_watch_window
+from app.alerts.engine import apply_direction_filter, apply_notification_mode, apply_quiet_hours, apply_weekday_filter, evaluate, in_watch_window
 from app.config import Settings
 from app.core.delay import stop_delay
 from app.core.models import NoService
@@ -67,6 +67,9 @@ def _is_awake_hours(now: datetime) -> bool:
 
 
 async def _dispatch_events(application, settings: Settings, events, now: datetime) -> None:
+    events = apply_weekday_filter(events, now)
+    if not events:
+        return
     events = apply_quiet_hours(events, now, settings)
     if not events:
         return

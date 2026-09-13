@@ -330,6 +330,22 @@ def test_quiet_hours_does_not_suppress_during_the_day():
     assert apply_quiet_hours(events, now, settings) == events
 
 
+def test_weekday_filter_passes_through_on_weekday():
+    from app.alerts.engine import AlertEvent, apply_weekday_filter
+
+    now = datetime(2026, 7, 8, 12, 0, tzinfo=_settings().tzinfo)  # Wednesday
+    events = [AlertEvent("fp1", "some alert")]
+    assert apply_weekday_filter(events, now) == events
+
+
+def test_weekday_filter_suppresses_on_weekend():
+    from app.alerts.engine import AlertEvent, apply_weekday_filter
+
+    now = datetime(2026, 7, 11, 12, 0, tzinfo=_settings().tzinfo)  # Saturday
+    events = [AlertEvent("fp1", "some alert", exempt_from_quiet_hours=True)]
+    assert apply_weekday_filter(events, now) == []
+
+
 def test_in_commute_window_before_morning_cutoff():
     settings = _settings()
     assert in_commute_window(_now_at(7, 0), settings)

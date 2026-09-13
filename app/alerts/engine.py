@@ -199,6 +199,19 @@ def apply_quiet_hours(events: list[AlertEvent], now: datetime, settings: Setting
     return [e for e in events if e.exempt_from_quiet_hours]
 
 
+def is_weekday(now: datetime) -> bool:
+    return now.weekday() < 5  # Mon=0 .. Fri=4
+
+
+def apply_weekday_filter(events: list[AlertEvent], now: datetime) -> list[AlertEvent]:
+    """Notifications are Mon-Fri only (commuter service); weekends are silent
+    even if a GTFS service alert matches the configured route/stops, since
+    my-train delay/annulment events already skip weekends via NoService."""
+    if is_weekday(now):
+        return events
+    return []
+
+
 def _parse_hhmm(s: str) -> time:
     h, m = (int(x) for x in s.split(":"))
     return time(h, m)
