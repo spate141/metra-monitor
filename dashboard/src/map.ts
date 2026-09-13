@@ -6,6 +6,11 @@ import { api, type Geometry, type Position, type TripDetail } from "./api";
 // CARTO's Voyager/Dark Matter basemaps are static, keyless, and free to use --
 // swapped per theme so the map matches the app's light/dark toggle instead of
 // staying flat grayscale in both.
+//
+// IMPORTANT: basemaps.cartocdn.com must be in the production CSP's connect-src
+// (Cloudflare zone-level Transform Rule/Worker for *.snehal.ai, outside this
+// repo) before this ships -- otherwise the browser silently blocks every
+// style/tile fetch and initMap()'s `map.on("load")` wait hangs forever.
 const STYLE_URLS = {
   light: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
   dark: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
