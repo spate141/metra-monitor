@@ -9,6 +9,9 @@ Three transition sources (design §4.5):
 2. Annulment / cancellation-lifted for my resolved trips, any time of day
    (constraint C8 -- these can appear hours early and must not wait for a
    watch window to be reported).
+   Both (1) and (2) stop for good once the train has left the watched stop
+   (Roselle in the morning, CUS in the evening) -- after that nothing about it
+   is actionable, and the feed's trip-level delay describes downstream stops.
 3. GTFS service alerts newly present (or, if `ALERT_CLEARED_PUSH`, newly absent)
    whose `informed_entity` matches the configured route or home/work stops.
 
@@ -24,11 +27,11 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
 from app.config import Settings
-from app.core.delay import delay_band, stop_delay
+from app.core.delay import delay_band, explicit_stop_delay, stop_delay
 from app.core.models import NoService, ResolvedTrip
 from app.core.trip_resolver import EVENING_DIRECTION_ID, MORNING_DIRECTION_ID
 from app.ingest.gtfs_time import gtfs_time_to_datetime
-from app.realtime.state_store import Snapshot
+from app.realtime.state_store import Snapshot, TripUpdateEntry
 
 WATCH_WINDOW = timedelta(minutes=45)
 
@@ -62,6 +65,26 @@ def in_quiet_hours(now: datetime, quiet_hours: str) -> bool:
     return now >= start or now <= end  # window wraps midnight, e.g. 22:00-05:30
 
 
+def has_departed(
+    now: datetime,
+    scheduled: datetime,
+    prev_entry: TripUpdateEntry | None,
+    latest_entry: TripUpdateEntry | None,
+    stop_id: str,
+) -> bool:
+    """True once the train has left `stop_id`: now is past scheduled departure
+    plus the last delay the feed reported for that stop. The feed drops passed
+    stops, so fall back to the previous poll's stop delay, then the trip-level
+    delay, then assume on time. Early departures are clamped to scheduled.
+    """
+    delay = explicit_stop_delay(latest_entry, stop_id)
+    if delay is None:
+        delay = explicit_stop_delay(prev_entry, stop_id)
+    if delay is None and latest_entry is not None:
+        delay = latest_entry.delay_sec
+    return now >= scheduled + timedelta(seconds=max(0, delay or 0))
+
+
 def _is_relevant_alert(alert, settings: Settings) -> bool:
     return (
         settings.ROUTE_ID in alert.informed_route_ids
@@ -90,6 +113,10 @@ def _my_trip_events(
 
         prev_entry = previous.trip_updates.get(result.trip_id)
         latest_entry = latest.trip_updates.get(result.trip_id)
+        # Once the train has left our stop, it's done for the day -- no more
+        # band flips or annulment noise about it.
+        if has_departed(now, scheduled_dt, prev_entry, latest_entry, stop_id):
+            continue
         prev_annulled = prev_entry.is_annulled if prev_entry else False
         latest_annulled = latest_entry.is_annulled if latest_entry else False
 

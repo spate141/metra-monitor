@@ -143,7 +143,7 @@ def test_delay_band_change_outside_watch_window_is_suppressed():
 def test_annulment_produces_exactly_one_alert_any_time_of_day():
     settings = _settings()
     resolved = _resolved()
-    now = _now_at(10, 0)  # outside watch window -- annulment (C8) must still fire
+    now = _now_at(5, 0)  # outside watch window, before departure -- annulment (C8) must still fire
 
     previous = _snapshot(_parse_trip_updates(_trip_update_feed("TRIP_MORNING", delay_sec=0)))
     latest = _snapshot(_parse_trip_updates(_trip_update_feed("TRIP_MORNING", annulled=True)))
@@ -156,7 +156,7 @@ def test_annulment_produces_exactly_one_alert_any_time_of_day():
 def test_cancellation_lifted_produces_exactly_one_alert():
     settings = _settings()
     resolved = _resolved()
-    now = _now_at(10, 0)
+    now = _now_at(5, 0)
 
     previous = _snapshot(_parse_trip_updates(_trip_update_feed("TRIP_MORNING", annulled=True)))
     latest = _snapshot(_parse_trip_updates(_trip_update_feed("TRIP_MORNING", delay_sec=0)))
@@ -164,6 +164,38 @@ def test_cancellation_lifted_produces_exactly_one_alert():
     events = evaluate(previous, latest, resolved, settings, now)
     assert len(events) == 1
     assert "running again" in events[0].message
+
+
+def test_no_band_alerts_after_train_departs_home_stop():
+    settings = _settings()
+    resolved = _resolved()  # scheduled 07:39 at ROSELLE
+    # Left Roselle on time; feed dropped the passed stop and now reports a
+    # downstream delay at the trip level.
+    previous = _snapshot(_parse_trip_updates(_trip_update_feed("TRIP_MORNING", delay_sec=60, stop_id="CUS")))
+    latest = _snapshot(_parse_trip_updates(_trip_update_feed("TRIP_MORNING", delay_sec=300, stop_id="CUS")))
+    assert evaluate(previous, latest, resolved, settings, _now_at(7, 50)) == []
+    # Feed stops reporting the trip altogether -> "unknown" flip, also silent.
+    gone = _snapshot()
+    assert evaluate(latest, gone, resolved, settings, _now_at(8, 5)) == []
+
+
+def test_band_alerts_continue_while_delayed_train_not_yet_departed():
+    settings = _settings()
+    resolved = _resolved()  # scheduled 07:39, running 10 min late -> leaves ~07:49
+    previous = _snapshot(_parse_trip_updates(_trip_update_feed("TRIP_MORNING", delay_sec=300)))
+    latest = _snapshot(_parse_trip_updates(_trip_update_feed("TRIP_MORNING", delay_sec=600)))
+    events = evaluate(previous, latest, resolved, settings, _now_at(7, 45))
+    assert len(events) == 1
+    assert "major" in events[0].message
+    assert evaluate(previous, latest, resolved, settings, _now_at(7, 50)) == []
+
+
+def test_no_annulment_alert_after_train_departs():
+    settings = _settings()
+    resolved = _resolved()
+    previous = _snapshot(_parse_trip_updates(_trip_update_feed("TRIP_MORNING", delay_sec=0)))
+    latest = _snapshot(_parse_trip_updates(_trip_update_feed("TRIP_MORNING", annulled=True)))
+    assert evaluate(previous, latest, resolved, settings, _now_at(10, 0)) == []
 
 
 def test_new_service_alert_produces_exactly_one_alert():
