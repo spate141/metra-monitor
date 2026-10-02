@@ -212,7 +212,7 @@ def poll_once(settings: Settings) -> Snapshot:
             alert_msg = _fetch_feed(settings, client, "alerts")
         except httpx.HTTPError as exc:
             logger.warning("realtime poll failed: %s", exc)
-            return Snapshot(fetched_at=now)
+            return Snapshot(fetched_at=now, fetch_ok=False)
 
     trip_ids = {e.trip_update.trip.trip_id for e in tu_msg.entity if e.HasField("trip_update")}
     scheduled = scheduled_stop_times(settings.db_path, trip_ids)

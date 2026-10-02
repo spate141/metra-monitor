@@ -204,7 +204,7 @@ def get_alerts():
             "description": alert.description_text,
             "line_wide": is_line_wide,
         })
-    return {"alerts": out, "line_wide": line_wide}
+    return {"alerts": out, "line_wide": line_wide, "available": snapshot.fetch_ok and settings.has_realtime}
 
 
 def _build_geometry() -> dict:
@@ -255,5 +255,16 @@ def get_stats():
     conn = connect(settings.db_path)
     try:
         return compute_stats(conn, settings.tzinfo)
+    finally:
+        conn.close()
+
+
+@router.get("/commute")
+def get_commute():
+    from app.api.commute import build_commute
+    snapshot = _cached_snapshot()
+    conn = connect(settings.db_path)
+    try:
+        return build_commute(conn, settings, snapshot)
     finally:
         conn.close()

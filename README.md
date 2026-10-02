@@ -156,3 +156,22 @@ or endorsed by Metra.
 ## License
 
 MIT, see `LICENSE`.
+
+## Personal commute dashboard
+
+The dashboard prioritizes the configured morning train and usual return, with
+an early return option (`EARLY_EVENING_DEPART_CUS=14:30`). It shows scheduled
+and estimated arrivals, a station timeline, three upcoming alternative trains
+serving both stations, service notices, and historical reliability. Times use
+the configured timezone rather than the browser timezone. The optional map
+loads only when opened and does not block the commute view.
+
+`GET /api/v1/commute` returns the active service date, station names, preferred
+trips, direction-grouped departures, stop timelines, and feed availability.
+Existing endpoints and Telegram preferences remain compatible. Deploy the
+updated API with the dashboard; the new interface requires this endpoint.
+Map tiles require access to `basemaps.cartocdn.com` in the hosting CSP.
+
+Reliability is the existing percentage of recorded observations within ten
+minutes of schedule, not a percentage of journeys with zero delay. Missing
+history and unavailable realtime data are shown explicitly.

@@ -42,6 +42,7 @@ class AlertEntry:
 @dataclass
 class Snapshot:
     fetched_at: datetime
+    fetch_ok: bool = True
     trip_updates: dict[str, TripUpdateEntry] = field(default_factory=dict)
     positions: dict[str, VehiclePositionEntry] = field(default_factory=dict)
     alerts: dict[str, AlertEntry] = field(default_factory=dict)

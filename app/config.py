@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     HOME_STOP: str
     WORK_STOP: str
     MORNING_TRAIN: str
+    EARLY_EVENING_DEPART_CUS: str = "14:30"
     EVENING_DEPART_CUS: str
     CORS_ORIGIN: str
 

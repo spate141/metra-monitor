@@ -1,6 +1,6 @@
 // Thin client for metra-monitor's public REST API (design §5). All read-only,
 // no auth needed -- the frontend never sees the Metra token.
-const API_BASE = import.meta.env.VITE_API_BASE as string;
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
 
 export interface SlotSummary {
   status: "resolved" | "no_service";
@@ -43,6 +43,7 @@ export interface AlertItem {
 }
 
 export interface AlertsResponse {
+  available?: boolean;
   alerts: AlertItem[];
   line_wide: boolean;
 }
@@ -86,7 +87,7 @@ export interface Health {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await fetch(`${API_BASE}${path}`, { signal: AbortSignal.timeout(25000) });
   if (!res.ok) throw new Error(`${path} -> HTTP ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -100,3 +101,35 @@ export const api = {
   stats: () => get<Record<string, StatsEntry>>("/api/v1/stats"),
   health: () => get<Health>("/health"),
 };
+
+export interface Timing {
+  scheduled: string | null;
+  estimated: string | null;
+  delay_sec: number | null;
+  estimate_source: string | null;
+}
+export interface Journey {
+  trip_id: string;
+  train_no: string;
+  direction: 'morning' | 'evening';
+  origin: string;
+  destination: string;
+  departure: Timing;
+  arrival: Timing;
+  is_cancelled: boolean;
+  position: {lat: number | null; lon: number | null; stop_name: string | null; timestamp: string | null} | null;
+  stops: (Timing & {stop_id: string; name: string})[];
+}
+export interface Commute {
+  service_date: string;
+  timezone: string;
+  route: string;
+  generated_at: string;
+  feed_fetched_at: string;
+  feed_status: 'available' | 'unavailable' | 'schedule_only';
+  home: string;
+  work: string;
+  preferred: {slot: string; label: string; trip: Journey | null}[];
+  departures: {morning: Journey[]; evening: Journey[]};
+}
+export const getCommute = () => get<Commute>('/api/v1/commute');
