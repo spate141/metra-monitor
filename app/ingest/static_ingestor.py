@@ -7,8 +7,12 @@ crash never leaves a half-populated schedule (design §8.3, edge case #3).
 
 Real-feed quirks this module works around (verified against a live schedule.zip):
 - `trips.txt` has no `trip_short_name` column. The train number is embedded in
-  `trip_id`, e.g. "MD-W_MW2225_V2_A" -> 2225. We extract it with a regex.
+  `trip_id` between the first and second underscores. Legacy format:
+  "MD-W_MW2225_V2_A" -> 2225; the format announced in Metra's 10/1/2026 developer
+  change notice: "MD-W_2225_8_2009_5682524" -> 2225. The regex accepts both, and a
+  `trip_short_name` column wins if Metra ever adds one.
 - CSV fields are comma-space separated (", ") -- every field needs `.strip()`.
+  (The new feed drops the spaces; stripping is harmless either way.)
 """
 from __future__ import annotations
 
@@ -27,12 +31,18 @@ from app.db import connect, init_schema, set_meta
 
 logger = logging.getLogger(__name__)
 
-TRAIN_NO_RE = re.compile(r"_MW(\d+)_")
+# Second underscore-delimited segment, with an optional two-letter legacy prefix ("MW").
+# Legacy specials like "MD-W_MWWX01_V1_B" intentionally yield None, as before.
+TRAIN_NO_RE = re.compile(r"^[^_]+_(?:[A-Z]{2})?(\d+)_")
 
 
 def _train_no_from_trip_id(trip_id: str) -> str | None:
     m = TRAIN_NO_RE.search(trip_id)
     return m.group(1) if m else None
+
+
+def _train_no(trip: dict[str, str]) -> str | None:
+    return trip.get("trip_short_name") or _train_no_from_trip_id(trip["trip_id"])
 
 
 def _read_csv(zf: zipfile.ZipFile, name: str) -> list[dict[str, str]]:
@@ -98,6 +108,15 @@ def _build_db(zf: zipfile.ZipFile, route_id: str, out_path: Path) -> None:
     all_trips = _read_csv(zf, "trips.txt")
     trips = [t for t in all_trips if t["route_id"] == route_id]
     trip_ids = {t["trip_id"] for t in trips}
+    # Every lookup (trip resolver, alerts, stats) keys on the train number. If the
+    # trip_id format changed again and none parse, fail the build so ingest() keeps
+    # the current DB instead of swapping in one with no usable trains.
+    if trips and not any(_train_no(t) for t in trips):
+        conn.close()
+        raise ValueError(
+            f"could not extract a train number from any trip_id (e.g. {trips[0]['trip_id']!r}); "
+            "trip_id format may have changed"
+        )
     conn.executemany(
         "INSERT INTO trips (trip_id, route_id, service_id, trip_short_name, direction_id, trip_headsign) "
         "VALUES (?,?,?,?,?,?)",
@@ -106,7 +125,7 @@ def _build_db(zf: zipfile.ZipFile, route_id: str, out_path: Path) -> None:
                 t["trip_id"],
                 t["route_id"],
                 t["service_id"],
-                _train_no_from_trip_id(t["trip_id"]),
+                _train_no(t),
                 int(t["direction_id"]) if t.get("direction_id") not in (None, "") else None,
                 t.get("trip_headsign"),
             )
@@ -178,11 +197,16 @@ def _build_db(zf: zipfile.ZipFile, route_id: str, out_path: Path) -> None:
             ],
         )
 
+    feed_version = None
+    if "feed_info.txt" in zf.namelist():
+        feed_info = _read_csv(zf, "feed_info.txt")
+        feed_version = feed_info[0].get("feed_version") if feed_info else None
+
     conn.commit()
     conn.close()
     logger.info(
-        "static ingest built: %d trips, %d stop_times rows, %d stops, %d service_ids",
-        len(trips), len(batch), len(stops), len(service_ids),
+        "static ingest built: %d trips, %d stop_times rows, %d stops, %d service_ids (feed_version %s)",
+        len(trips), len(batch), len(stops), len(service_ids), feed_version,
     )
 
 
