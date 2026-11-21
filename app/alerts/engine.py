@@ -44,6 +44,14 @@ class AlertEvent:
     message: str
     exempt_from_quiet_hours: bool = False
     direction_id: int | None = None
+    # Dedup window for this fingerprint. None = the loop's default cooldown;
+    # service alerts use NEVER_RESEND so the same announcement is pushed once.
+    cooldown: timedelta | None = None
+
+
+# Effectively "send once, ever": service alerts can drop out of and reappear in
+# the feed (feed glitches, Metra republishing) and must not re-notify each time.
+NEVER_RESEND = timedelta.max
 
 
 def _fingerprint(*parts: str) -> str:
@@ -173,6 +181,13 @@ def _format_alert_text(alert) -> str:
     return header or description
 
 
+def _alert_content_key(alert) -> str:
+    """Identity of an alert's *content*, not its feed entity id -- Metra can
+    re-issue the same announcement under a new id. Edited text = new key, so
+    genuine updates still notify."""
+    return " ".join(_format_alert_text(alert).split()).casefold()
+
+
 def _service_alert_events(previous: Snapshot, latest: Snapshot, settings: Settings) -> list[AlertEvent]:
     events: list[AlertEvent] = []
     prev_relevant = {aid: a for aid, a in previous.alerts.items() if _is_relevant_alert(a, settings)}
@@ -182,9 +197,10 @@ def _service_alert_events(previous: Snapshot, latest: Snapshot, settings: Settin
         if aid not in prev_relevant:
             events.append(
                 AlertEvent(
-                    _fingerprint("alert_new", aid),
+                    _fingerprint("alert_new", _alert_content_key(alert)),
                     f"📢 New alert: {_format_alert_text(alert)}",
                     direction_id=_alert_direction(alert),
+                    cooldown=NEVER_RESEND,
                 )
             )
     if settings.ALERT_CLEARED_PUSH:
@@ -192,8 +208,9 @@ def _service_alert_events(previous: Snapshot, latest: Snapshot, settings: Settin
             if aid not in latest_relevant:
                 events.append(
                     AlertEvent(
-                        _fingerprint("alert_cleared", aid),
+                        _fingerprint("alert_cleared", _alert_content_key(alert)),
                         f"✅ Alert cleared: {_format_alert_text(alert)}",
+                        cooldown=NEVER_RESEND,
                     )
                 )
     return events

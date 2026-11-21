@@ -16,6 +16,7 @@ from datetime import date, datetime
 from google.transit import gtfs_realtime_pb2
 
 from app.alerts.engine import (
+    NEVER_RESEND,
     apply_direction_filter,
     apply_notification_mode,
     apply_quiet_hours,
@@ -209,6 +210,36 @@ def test_new_service_alert_produces_exactly_one_alert():
     events = evaluate(previous, latest, resolved, settings, now)
     assert len(events) == 1
     assert "Signal problem" in events[0].message
+
+
+def test_service_alert_reappearing_keeps_same_fingerprint_and_never_resends():
+    """Regression: an alert that drops out of the feed (glitch / failed fetch)
+    and comes back must dedup to the same fingerprint, permanently -- not a
+    30-min cooldown -- even if Metra re-issues it under a new entity id."""
+    settings = _settings()
+    resolved = _resolved()
+    now = _now_at(12, 0)
+    empty = _snapshot()
+    first = _snapshot(alerts=_parse_alerts(_alert_feed("A1", route_id="MD-W", header="CUS Great Hall closure")))
+    again = _snapshot(alerts=_parse_alerts(_alert_feed("A1-v2", route_id="MD-W", header="CUS  Great Hall closure")))
+
+    (e1,) = evaluate(empty, first, resolved, settings, now)
+    (e2,) = evaluate(empty, again, resolved, settings, now)
+    assert e1.fingerprint == e2.fingerprint
+    assert e1.cooldown is NEVER_RESEND
+
+
+def test_edited_service_alert_text_gets_new_fingerprint():
+    settings = _settings()
+    resolved = _resolved()
+    now = _now_at(12, 0)
+    empty = _snapshot()
+    v1 = _snapshot(alerts=_parse_alerts(_alert_feed("A1", route_id="MD-W", header="Closure 10am")))
+    v2 = _snapshot(alerts=_parse_alerts(_alert_feed("A1", route_id="MD-W", header="Closure 2pm")))
+
+    (e1,) = evaluate(empty, v1, resolved, settings, now)
+    (e2,) = evaluate(empty, v2, resolved, settings, now)
+    assert e1.fingerprint != e2.fingerprint
 
 
 def test_irrelevant_service_alert_is_ignored():

@@ -84,7 +84,7 @@ async def _dispatch_events(application, settings: Settings, events, now: datetim
         if not events:
             return
         for event in events:
-            if fingerprint_recently_sent(conn, event.fingerprint, FINGERPRINT_COOLDOWN):
+            if fingerprint_recently_sent(conn, event.fingerprint, event.cooldown or FINGERPRINT_COOLDOWN):
                 continue
             await push_message(application, settings, event.message)
             mark_fingerprint_sent(conn, event.fingerprint)
@@ -146,6 +146,10 @@ async def run_loop(settings: Settings, state_store: StateStore, application) -> 
         return
 
     empty_since: datetime | None = None
+    # Last snapshot whose fetch succeeded. Failed polls come back empty, so
+    # diffing against one would make every active alert look "new" again (and
+    # flip my-train bands to "unknown") on the next good poll.
+    last_good: Snapshot | None = None
     stale_alerted_for: datetime | None = None
 
     while True:
@@ -165,13 +169,14 @@ async def run_loop(settings: Settings, state_store: StateStore, application) -> 
 
         try:
             snapshot = poll_once(settings)
-            previous = state_store.latest
             state_store.update(snapshot)
             _record_delay_history(settings, resolved, snapshot, now)
 
-            if previous is not None:
-                events = evaluate(previous, snapshot, resolved, settings, now)
-                await _dispatch_events(application, settings, events, now)
+            if snapshot.fetch_ok:
+                if last_good is not None:
+                    events = evaluate(last_good, snapshot, resolved, settings, now)
+                    await _dispatch_events(application, settings, events, now)
+                last_good = snapshot
 
             if watch:
                 if not snapshot.trip_updates and not snapshot.positions:
